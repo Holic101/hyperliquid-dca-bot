@@ -49,16 +49,17 @@ async def main():
             config_data = json.load(f)
         
         # Create config object
+        wallet_address = os.getenv("HYPERLIQUID_WALLET_ADDRESS") or config_data.get("wallet_address", "")
         config = DCAConfig(
-            wallet_address=config_data["wallet_address"],
+            wallet_address=wallet_address,
             private_key=os.getenv("HYPERLIQUID_PRIVATE_KEY"),
-            base_amount=config_data.get("base_amount", 200.0),
-            min_amount=config_data.get("min_amount", 100.0),
-            max_amount=config_data.get("max_amount", 500.0),
+            base_amount=config_data.get("base_amount", 50.0),
+            min_amount=config_data.get("min_amount", 25.0),
+            max_amount=config_data.get("max_amount", 100.0),
             frequency=config_data.get("frequency", "weekly"),
             volatility_window=config_data.get("volatility_window", 30),
-            low_vol_threshold=config_data.get("low_vol_threshold", 30.0),
-            high_vol_threshold=config_data.get("high_vol_threshold", 100.0),
+            low_vol_threshold=config_data.get("low_vol_threshold", 35.0),
+            high_vol_threshold=config_data.get("high_vol_threshold", 85.0),
             enabled=config_data.get("enabled", True)
         )
         
