@@ -1,12 +1,12 @@
 {
   // Wallet address is injected at runtime via the HYPERLIQUID_WALLET_ADDRESS environment variable (see GitHub Actions secrets)
   "wallet_address": "",
-  "base_amount": 200,
-  "min_amount": 100,
-  "max_amount": 500,
+  "base_amount": 50,
+  "min_amount": 25,
+  "max_amount": 100,
   "frequency": "weekly",
   "volatility_window": 30,
-  "low_vol_threshold": 30.0,
-  "high_vol_threshold": 100.0,
+  "low_vol_threshold": 35.0,
+  "high_vol_threshold": 85.0,
   "enabled": true
 }
