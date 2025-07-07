@@ -1,5 +1,5 @@
 {
-  "wallet_address": "0x253F3FFE3b8c9DB2723D8f2E8C70ce33DAB7F759",
+  "wallet_address": "your_wallet_address_here",
   "base_amount": 50.0,
   "min_amount": 25.0,
   "max_amount": 100.0,
