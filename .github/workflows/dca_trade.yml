@@ -7,7 +7,7 @@ on:
   # Runs on a schedule (e.g., every day at 9:00 AM UTC)
   # Use https://crontab.guru to customize your schedule
   schedule:
-    - cron: '0 9 * * *'
+    - cron: '0 9 * * 1'
 
 jobs:
   trade:
