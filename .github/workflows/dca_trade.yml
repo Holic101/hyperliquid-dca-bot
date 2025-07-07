@@ -30,5 +30,7 @@ jobs:
     - name: Run DCA Trading Script
       env:
         HYPERLIQUID_PRIVATE_KEY: ${{ secrets.HYPERLIQUID_PRIVATE_KEY }}
+        HYPERLIQUID_WALLET_ADDRESS: ${{ secrets.HYPERLIQUID_WALLET_ADDRESS }}
       run: |
+        cd $GITHUB_WORKSPACE
         python check_and_trade.py 
