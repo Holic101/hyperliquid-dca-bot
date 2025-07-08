@@ -225,6 +225,14 @@ class HyperliquidDCABot:
             logger.error(f"Error during DCA trade execution: {e}", exc_info=True)
             return None
 
+    async def get_account_trade_history(self) -> List[Dict]:
+        """Fetch all historical fills for the user from the API."""
+        try:
+            return self.info.user_fills(self.config.wallet_address)
+        except Exception as e:
+            logger.error(f"Error fetching account trade history: {e}")
+            return []
+
     def get_portfolio_stats(self) -> Dict:
         if not self.trade_history:
             return {"total_invested": 0, "btc_holdings": 0, "avg_buy_price": 0, "current_value": 0, "pnl": 0}
@@ -368,13 +376,31 @@ def dashboard_page():
         else:
             st.write("No trades have been executed yet.")
 
-    st.subheader("Trade History")
-    if bot.trade_history:
-        history_df = pd.DataFrame([vars(t) for t in bot.trade_history])
-        history_df['timestamp'] = history_df['timestamp'].dt.strftime('%Y-%m-%d %H:%M')
-        st.dataframe(history_df[['timestamp', 'price', 'amount_usd', 'amount_btc', 'volatility', 'tx_hash']])
-    else:
-        st.info("No trade history to display.")
+    st.subheader("Account Trade History (from Hyperliquid API)")
+    with st.spinner("Loading full trade history..."):
+        # Fetch and display the full trade history
+        raw_history = asyncio.run(bot.get_account_trade_history())
+        if raw_history:
+            history_df = pd.DataFrame(raw_history)
+            
+            # Filter for spot trades and relevant columns
+            spot_history_df = history_df[history_df['asset'] == 'UBTC'].copy()
+
+            if not spot_history_df.empty:
+                # Process and format the DataFrame
+                spot_history_df['time'] = pd.to_datetime(spot_history_df['time'], unit='ms')
+                spot_history_df['price'] = spot_history_df['px'].astype(float)
+                spot_history_df['quantity'] = spot_history_df['sz'].astype(float)
+                spot_history_df['fee'] = spot_history_df['fee'].astype(float)
+                spot_history_df['total_usd'] = spot_history_df['price'] * spot_history_df['quantity']
+
+                st.dataframe(spot_history_df[[
+                    'time', 'asset', 'side', 'price', 'quantity', 'total_usd', 'fee'
+                ]].sort_values('time', ascending=False))
+            else:
+                st.info("No spot trade history found for UBTC.")
+        else:
+            st.info("No trade history could be fetched from the API.")
 
 def main():
     """Main Streamlit app function"""
