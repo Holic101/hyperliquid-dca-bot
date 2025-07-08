@@ -359,13 +359,45 @@ def dashboard_page():
                     st.error("Trade failed. Check logs.")
 
     # --- Main Dashboard ---
+
+    # Fetch and process history first
+    raw_history = asyncio.run(bot.get_account_trade_history())
+    spot_history_df = pd.DataFrame()
+
+    if raw_history:
+        history_df = pd.DataFrame(raw_history)
+        if 'coin' in history_df.columns:
+            spot_history_df = history_df[history_df['coin'] == BITCOIN_SPOT_SYMBOL].copy()
+    
+    # Now, display portfolio and status
     col1, col2 = st.columns(2)
     with col1:
-        st.subheader("Portfolio Overview")
-        stats = bot.get_portfolio_stats()
-        st.metric("Total Invested (USD)", f"${stats['total_invested']:.2f}")
-        st.metric("BTC Holdings", f"{stats['btc_holdings']:.6f} BTC")
-        st.metric("Average Buy Price", f"${stats['avg_buy_price']:.2f}")
+        st.subheader("UBTC Spot Portfolio (from API)")
+        if not spot_history_df.empty:
+            spot_history_df['price'] = spot_history_df['px'].astype(float)
+            spot_history_df['quantity'] = spot_history_df['sz'].astype(float)
+            spot_history_df['is_buy'] = spot_history_df['side'] == 'B'
+            
+            total_btc_bought = spot_history_df[spot_history_df['is_buy']]['quantity'].sum()
+            total_btc_sold = spot_history_df[~spot_history_df['is_buy']]['quantity'].sum()
+            btc_holdings = total_btc_bought - total_btc_sold
+
+            total_usd_spent = (spot_history_df[spot_history_df['is_buy']]['quantity'] * spot_history_df[spot_history_df['is_buy']]['price']).sum()
+            total_usd_received = (spot_history_df[~spot_history_df['is_buy']]['quantity'] * spot_history_df[~spot_history_df['is_buy']]['price']).sum()
+            net_usd_invested = total_usd_spent - total_usd_received
+
+            avg_buy_price = net_usd_invested / btc_holdings if btc_holdings > 0 else 0
+            
+            current_price = asyncio.run(bot.get_btc_price())
+            current_value = btc_holdings * current_price
+            pnl = current_value - net_usd_invested
+
+            st.metric("BTC Holdings", f"{btc_holdings:.6f} UBTC")
+            st.metric("Average Cost", f"${avg_buy_price:,.2f}")
+            st.metric("Current Value", f"${current_value:,.2f}")
+            st.metric("Total PnL", f"${pnl:,.2f}", delta=f"{((pnl/net_usd_invested)*100 if net_usd_invested > 0 else 0):.2f}%")
+        else:
+            st.info("No UBTC spot trade history found to calculate portfolio.")
 
     with col2:
         st.subheader("Bot Status")
@@ -374,47 +406,32 @@ def dashboard_page():
         else:
             st.warning("Bot is DISABLED")
         
+        # This part uses the local dca_history.json for bot-specific timings
+        st.write("**Bot-Specific History:**")
         if bot.trade_history:
             last_trade_time = bot.trade_history[-1].timestamp
-            st.write(f"Last trade: {last_trade_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            st.write(f"Last Bot Trade: {last_trade_time.strftime('%Y-%m-%d %H:%M:%S')}")
             next_trade_time = last_trade_time + timedelta(days=1 if bot.config.frequency == "daily" else 7 if bot.config.frequency == "weekly" else 30)
-            st.write(f"Next scheduled trade after: {next_trade_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            st.write(f"Next Scheduled Bot Trade: After {next_trade_time.strftime('%Y-%m-%d %H:%M:%S')}")
         else:
-            st.write("No trades have been executed yet.")
+            st.write("No trades have been executed by this bot yet.")
 
     st.subheader("Account Trade History (from Hyperliquid API)")
     with st.spinner("Loading full trade history..."):
-        # Fetch and display the full trade history
-        raw_history = asyncio.run(bot.get_account_trade_history())
-        if raw_history:
-            history_df = pd.DataFrame(raw_history)
-            
-            # Check if 'asset' column exists to prevent KeyError
-            if 'asset' in history_df.columns:
-                # Filter for spot trades and relevant columns
-                spot_history_df = history_df[history_df['asset'] == 'UBTC'].copy()
-            else:
-                # If 'asset' column is missing, display a warning and the raw data for debugging.
-                st.warning("The 'asset' column was not found in the trade history from the API. This can happen if there are no spot trades. Displaying raw history data below for diagnostics.")
-                st.dataframe(history_df)
-                spot_history_df = pd.DataFrame() # Create empty DataFrame to prevent further errors
+        if not spot_history_df.empty:
+            # Process and format the DataFrame for display
+            spot_history_df['time'] = pd.to_datetime(spot_history_df['time'], unit='ms')
+            spot_history_df['fee'] = spot_history_df['fee'].astype(float)
+            spot_history_df['total_usd'] = spot_history_df['price'] * spot_history_df['quantity']
 
-
-            if not spot_history_df.empty:
-                # Process and format the DataFrame
-                spot_history_df['time'] = pd.to_datetime(spot_history_df['time'], unit='ms')
-                spot_history_df['price'] = spot_history_df['px'].astype(float)
-                spot_history_df['quantity'] = spot_history_df['sz'].astype(float)
-                spot_history_df['fee'] = spot_history_df['fee'].astype(float)
-                spot_history_df['total_usd'] = spot_history_df['price'] * spot_history_df['quantity']
-
-                st.dataframe(spot_history_df[[
-                    'time', 'asset', 'side', 'price', 'quantity', 'total_usd', 'fee'
-                ]].sort_values('time', ascending=False))
-            else:
-                st.info("No spot trade history found for UBTC.")
+            st.dataframe(spot_history_df[[
+                'time', 'coin', 'side', 'price', 'quantity', 'total_usd', 'fee'
+            ]].sort_values('time', ascending=False))
         else:
-            st.info("No trade history could be fetched from the API.")
+            st.info("No UBTC spot trade history could be fetched from the API.")
+            if raw_history:
+                st.warning("Displaying raw history data below for diagnostics.")
+                st.dataframe(pd.DataFrame(raw_history))
 
 def main():
     """Main Streamlit app function"""
