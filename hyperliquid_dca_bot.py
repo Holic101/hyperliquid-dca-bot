@@ -225,6 +225,19 @@ class HyperliquidDCABot:
             logger.error(f"Error during DCA trade execution: {e}", exc_info=True)
             return None
 
+    async def get_spot_asset_index(self, asset_name: str) -> Optional[int]:
+        """Dynamically find the spot asset index for a given asset name."""
+        try:
+            spot_meta = await asyncio.to_thread(self.info.spot_meta)
+            for asset in spot_meta.get("universe", []):
+                if asset.get("name") == asset_name:
+                    return asset.get("spotAssetIndex")
+            logger.warning(f"Spot asset index for '{asset_name}' not found.")
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching spot meta information: {e}")
+            return None
+
     async def get_account_trade_history(self) -> List[Dict]:
         """Fetch all historical fills for the user from the API."""
         try:
@@ -361,13 +374,16 @@ def dashboard_page():
     # --- Main Dashboard ---
 
     # Fetch and process history first
+    btc_spot_index = asyncio.run(bot.get_spot_asset_index(BITCOIN_SPOT_SYMBOL))
+    btc_spot_identifier = f"@{btc_spot_index}" if btc_spot_index is not None else None
+
     raw_history = asyncio.run(bot.get_account_trade_history())
     spot_history_df = pd.DataFrame()
 
-    if raw_history:
+    if raw_history and btc_spot_identifier:
         history_df = pd.DataFrame(raw_history)
         if 'coin' in history_df.columns:
-            spot_history_df = history_df[history_df['coin'] == BITCOIN_SPOT_SYMBOL].copy()
+            spot_history_df = history_df[history_df['coin'] == btc_spot_identifier].copy()
     
     # Now, display portfolio and status
     col1, col2 = st.columns(2)
