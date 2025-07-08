@@ -306,7 +306,7 @@ def login_page():
     if st.button("Login"):
         if password == os.getenv("DCA_BOT_PASSWORD"):
             st.session_state.logged_in = True
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.error("Incorrect password")
 
@@ -341,7 +341,7 @@ def dashboard_page():
             save_config(conf)
             st.session_state.config = conf # Update session state
             st.success("Configuration saved!")
-            st.experimental_rerun()
+            st.rerun()
 
         st.header("Manual Control")
         if st.button("Execute Manual Trade"):
