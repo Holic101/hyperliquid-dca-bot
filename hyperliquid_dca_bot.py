@@ -238,6 +238,15 @@ class HyperliquidDCABot:
             logger.error(f"Error fetching spot meta information: {e}")
             return None
 
+    async def get_usdc_balance(self) -> float:
+        """Fetches the user's USDC spot balance."""
+        try:
+            spot_state = self.info.spot_user_state(self.config.wallet_address)
+            return next((float(b["total"]) for b in spot_state.get("balances", []) if b["coin"] == "USDC"), 0.0)
+        except Exception as e:
+            logger.error(f"Error fetching USDC balance: {e}")
+            return 0.0
+
     async def get_account_trade_history(self) -> List[Dict]:
         """Fetch all historical fills for the user from the API."""
         try:
@@ -330,8 +339,8 @@ def login_page():
             st.error("Incorrect password")
 
 def dashboard_page():
-    st.set_page_config(layout="wide")
-    st.title("Hyperliquid Volatility DCA Bot Dashboard")
+    st.set_page_config(page_title="Hyperliquid DCA Bot", page_icon="📈", layout="wide")
+    st.title("📈 Hyperliquid Volatility-Based DCA Bot")
 
     if st.session_state.config is None:
         st.error("Bot configuration is missing or invalid. Please check your config file.")
@@ -341,6 +350,29 @@ def dashboard_page():
         st.session_state.bot = HyperliquidDCABot(st.session_state.config)
     
     bot = st.session_state.bot
+
+    # --- Data Loading ---
+    @st.cache_data(ttl=60)
+    def get_dashboard_data():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        btc_spot_index = loop.run_until_complete(bot.get_spot_asset_index(BITCOIN_SPOT_SYMBOL))
+        btc_spot_identifier = f"@{btc_spot_index}" if btc_spot_index is not None else None
+        
+        raw_history = loop.run_until_complete(bot.get_account_trade_history())
+        current_price = loop.run_until_complete(bot.get_btc_price())
+        usdc_balance = loop.run_until_complete(bot.get_usdc_balance())
+
+        spot_history_df = pd.DataFrame()
+        if raw_history and btc_spot_identifier:
+            history_df = pd.DataFrame(raw_history)
+            if 'coin' in history_df.columns:
+                spot_history_df = history_df[history_df['coin'] == btc_spot_identifier].copy()
+        
+        return spot_history_df, current_price, usdc_balance, raw_history
+
+    spot_history_df, current_price, usdc_balance, raw_history = get_dashboard_data()
 
     # --- Sidebar for configuration ---
     with st.sidebar:
@@ -371,24 +403,22 @@ def dashboard_page():
                 else:
                     st.error("Trade failed. Check logs.")
 
-    # --- Main Dashboard ---
+    # --- Main Page Tabs ---
+    overview_tab, portfolio_tab, history_tab, volatility_tab = st.tabs(["📊 Overview", "💼 Portfolio", "📜 Trade History", "📈 Volatility Analysis"])
 
-    # Fetch and process history first
-    btc_spot_index = asyncio.run(bot.get_spot_asset_index(BITCOIN_SPOT_SYMBOL))
-    btc_spot_identifier = f"@{btc_spot_index}" if btc_spot_index is not None else None
+    with overview_tab:
+        # --- Portfolio Metrics ---
+        st.subheader("Portfolio Metrics")
+        col1, col2, col3, col4 = st.columns(4)
 
-    raw_history = asyncio.run(bot.get_account_trade_history())
-    spot_history_df = pd.DataFrame()
+        # Initialize default values
+        total_invested = 0.0
+        total_btc = 0.0
+        avg_price = 0.0
+        current_value = 0.0
+        pnl = 0.0
+        trade_count = 0
 
-    if raw_history and btc_spot_identifier:
-        history_df = pd.DataFrame(raw_history)
-        if 'coin' in history_df.columns:
-            spot_history_df = history_df[history_df['coin'] == btc_spot_identifier].copy()
-    
-    # Now, display portfolio and status
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("UBTC Spot Portfolio (from API)")
         if not spot_history_df.empty:
             spot_history_df['price'] = spot_history_df['px'].astype(float)
             spot_history_df['quantity'] = spot_history_df['sz'].astype(float)
@@ -396,58 +426,65 @@ def dashboard_page():
             
             total_btc_bought = spot_history_df[spot_history_df['is_buy']]['quantity'].sum()
             total_btc_sold = spot_history_df[~spot_history_df['is_buy']]['quantity'].sum()
-            btc_holdings = total_btc_bought - total_btc_sold
+            total_btc = total_btc_bought - total_btc_sold
 
             total_usd_spent = (spot_history_df[spot_history_df['is_buy']]['quantity'] * spot_history_df[spot_history_df['is_buy']]['price']).sum()
             total_usd_received = (spot_history_df[~spot_history_df['is_buy']]['quantity'] * spot_history_df[~spot_history_df['is_buy']]['price']).sum()
-            net_usd_invested = total_usd_spent - total_usd_received
+            total_invested = total_usd_spent - total_usd_received
 
-            avg_buy_price = net_usd_invested / btc_holdings if btc_holdings > 0 else 0
-            
-            current_price = asyncio.run(bot.get_btc_price())
-            current_value = btc_holdings * current_price
-            pnl = current_value - net_usd_invested
+            avg_price = total_invested / total_btc if total_btc > 0 else 0
+            current_value = total_btc * current_price
+            pnl = current_value - total_invested
+            trade_count = len(spot_history_df)
 
-            st.metric("BTC Holdings", f"{btc_holdings:.6f} UBTC")
-            st.metric("Average Cost", f"${avg_buy_price:,.2f}")
+        with col1:
+            st.metric("BTC Price", f"${current_price:,.2f}")
+            st.metric("Average Price", f"${avg_price:,.2f}")
+        with col2:
+            st.metric("USDC Balance", f"${usdc_balance:,.2f}")
             st.metric("Current Value", f"${current_value:,.2f}")
-            st.metric("Total PnL", f"${pnl:,.2f}", delta=f"{((pnl/net_usd_invested)*100 if net_usd_invested > 0 else 0):.2f}%")
-        else:
-            st.info("No UBTC spot trade history found to calculate portfolio.")
+        with col3:
+            st.metric("Total Invested", f"${total_invested:,.2f}")
+            st.metric("P&L", f"${pnl:,.2f}", delta=f"{((pnl/total_invested)*100 if total_invested > 0 else 0):.2f}%")
+        with col4:
+            st.metric("Total BTC", f"{total_btc:.8f}")
+            st.metric("Trade Count", f"{trade_count}")
 
-    with col2:
-        st.subheader("Bot Status")
-        if bot.config.enabled:
-            st.success("Bot is ENABLED")
-        else:
-            st.warning("Bot is DISABLED")
-        
-        # This part uses the local dca_history.json for bot-specific timings
-        st.write("**Bot-Specific History:**")
-        if bot.trade_history:
-            last_trade_time = bot.trade_history[-1].timestamp
-            st.write(f"Last Bot Trade: {last_trade_time.strftime('%Y-%m-%d %H:%M:%S')}")
-            next_trade_time = last_trade_time + timedelta(days=1 if bot.config.frequency == "daily" else 7 if bot.config.frequency == "weekly" else 30)
-            st.write(f"Next Scheduled Bot Trade: After {next_trade_time.strftime('%Y-%m-%d %H:%M:%S')}")
-        else:
-            st.write("No trades have been executed by this bot yet.")
+        st.divider()
 
-    st.subheader("Account Trade History (from Hyperliquid API)")
-    with st.spinner("Loading full trade history..."):
+        # --- Bot Status ---
+        st.subheader("◎ Bot Status")
+        status_col1, status_col2, status_col3 = st.columns(3)
+        with status_col1:
+            with st.container(border=True):
+                st.markdown(f"**Status:** {'🟢 Active' if bot.config.enabled else '🔴 Inactive'}")
+        with status_col2:
+            with st.container(border=True):
+                st.markdown(f"**Next Trade:** {'Ready' if bot.should_execute_trade() else 'Waiting'}")
+        with status_col3:
+            with st.container(border=True):
+                st.markdown(f"**Frequency:** {bot.config.frequency.capitalize()}")
+    
+    with portfolio_tab:
+        st.info("Portfolio analysis and charting will be implemented here in a future update.")
+
+    with history_tab:
+        st.subheader("Spot Trade History (UBTC/USDC)")
         if not spot_history_df.empty:
-            # Process and format the DataFrame for display
-            spot_history_df['time'] = pd.to_datetime(spot_history_df['time'], unit='ms')
-            spot_history_df['fee'] = spot_history_df['fee'].astype(float)
-            spot_history_df['total_usd'] = spot_history_df['price'] * spot_history_df['quantity']
-
-            st.dataframe(spot_history_df[[
-                'time', 'coin', 'side', 'price', 'quantity', 'total_usd', 'fee'
-            ]].sort_values('time', ascending=False))
+            display_df = spot_history_df.copy()
+            display_df['time'] = pd.to_datetime(display_df['time'], unit='ms')
+            display_df['fee'] = display_df['fee'].astype(float)
+            display_df['total_usd'] = display_df['price'] * display_df['quantity']
+            st.dataframe(display_df[['time', 'coin', 'side', 'price', 'quantity', 'total_usd', 'fee']].sort_values('time', ascending=False))
         else:
             st.info("No UBTC spot trade history could be fetched from the API.")
             if raw_history:
                 st.warning("Displaying raw history data below for diagnostics.")
                 st.dataframe(pd.DataFrame(raw_history))
+
+    with volatility_tab:
+        st.info("Volatility analysis and charting will be implemented here in a future update.")
+
 
 def main():
     """Main Streamlit app function"""
