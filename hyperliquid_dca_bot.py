@@ -335,9 +335,9 @@ def dashboard_page():
         
         conf = st.session_state.config
         conf.enabled = st.toggle("Bot Enabled", value=conf.enabled)
-        conf.base_amount = st.number_input("Base Amount ($)", value=conf.base_amount, step=10.0)
-        conf.min_amount = st.number_input("Min Amount ($)", value=conf.min_amount, step=10.0)
-        conf.max_amount = st.number_input("Max Amount ($)", value=conf.max_amount, step=10.0)
+        conf.base_amount = st.number_input("Base Amount ($)", value=float(conf.base_amount), step=10.0)
+        conf.min_amount = st.number_input("Min Amount ($)", value=float(conf.min_amount), step=10.0)
+        conf.max_amount = st.number_input("Max Amount ($)", value=float(conf.max_amount), step=10.0)
         conf.frequency = st.selectbox("Frequency", ["daily", "weekly", "monthly"], index=["daily", "weekly", "monthly"].index(conf.frequency))
         conf.volatility_window = st.slider("Volatility Window (days)", 10, 90, conf.volatility_window)
         conf.low_vol_threshold = st.slider("Low Volatility Threshold (%)", 10.0, 50.0, conf.low_vol_threshold)
