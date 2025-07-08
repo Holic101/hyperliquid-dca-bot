@@ -247,6 +247,51 @@ class HyperliquidDCABot:
             logger.error(f"Error fetching USDC balance: {e}")
             return 0.0
 
+    # --- NEU: Spot-PnL-Utils ---
+    def get_spot_fills(self, days: int = 365 * 5):
+        """Alle Spot-Fills der letzten <days> Tage holen & filtern."""
+        start_ms = int((datetime.utcnow() - timedelta(days=days)).timestamp() * 1000)
+        fills = self.info.user_fills_by_time(self.config.wallet_address, start_time=start_ms)
+        return [f for f in fills if f["coin"] == BITCOIN_SPOT_SYMBOL]
+
+    def calc_realized_pnl(self, fills):
+        """Summe der realisierten USDC-Gewinne."""
+        return sum(float(f["closedPnl"]) for f in fills if float(f.get("closedPnl", 0)) != 0)
+
+    def calc_unrealized_pnl(self):
+        """Bestand, Kostenbasis & unrealisierte PnL via balances + Mid."""
+        try:
+            spot_state = self.info.spot_user_state(self.config.wallet_address)
+            bal = next((b for b in spot_state["balances"] if b["coin"] == "UBTC"), None)
+            if not bal:
+                return 0.0, 0.0, 0.0
+            
+            pos_sz = float(bal["total"])
+            cost_basis = float(bal.get("entryNtl", 0)) / pos_sz if pos_sz else 0
+            mid_prices = self.info.all_mids()
+            mid = float(mid_prices.get(BITCOIN_SPOT_SYMBOL.split('/')[0], 0))
+            
+            unrealized_pnl = pos_sz * (mid - cost_basis) if mid > 0 else 0
+            return unrealized_pnl, pos_sz, cost_basis
+        except Exception as e:
+            logger.error(f"Error calculating unrealized PnL: {e}")
+            return 0.0, 0.0, 0.0
+            
+    def filter_by_period(self, fills, period: str):
+        now = datetime.utcnow()
+        delta = {
+            "Tag": timedelta(days=1),
+            "Woche": timedelta(weeks=1),
+            "Monat": timedelta(days=30),
+            "Jahr": timedelta(days=365),
+            "Alles": None,
+        }.get(period)
+        
+        if delta is None:
+            return fills
+        since = int((now - delta).timestamp() * 1000)
+        return [f for f in fills if f["time"] >= since]
+        
     async def get_account_trade_history(self) -> List[Dict]:
         """Fetch all historical fills for the user from the API."""
         try:
@@ -340,7 +385,7 @@ def login_page():
 
 def dashboard_page():
     st.set_page_config(page_title="Hyperliquid DCA Bot", page_icon="📈", layout="wide")
-    st.title("📈 Hyperliquid Volatility-Based DCA Bot")
+    st.title("📈 Hyperliquid Spot DCA Bot")
 
     if st.session_state.config is None:
         st.error("Bot configuration is missing or invalid. Please check your config file.")
@@ -351,30 +396,7 @@ def dashboard_page():
     
     bot = st.session_state.bot
 
-    # --- Data Loading ---
-    @st.cache_data(ttl=60)
-    def get_dashboard_data():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        btc_spot_index = loop.run_until_complete(bot.get_spot_asset_index(BITCOIN_SPOT_SYMBOL))
-        btc_spot_identifier = f"@{btc_spot_index}" if btc_spot_index is not None else None
-        
-        raw_history = loop.run_until_complete(bot.get_account_trade_history())
-        current_price = loop.run_until_complete(bot.get_btc_price())
-        usdc_balance = loop.run_until_complete(bot.get_usdc_balance())
-
-        spot_history_df = pd.DataFrame()
-        if raw_history and btc_spot_identifier:
-            history_df = pd.DataFrame(raw_history)
-            if 'coin' in history_df.columns:
-                spot_history_df = history_df[history_df['coin'] == btc_spot_identifier].copy()
-        
-        return spot_history_df, current_price, usdc_balance, raw_history
-
-    spot_history_df, current_price, usdc_balance, raw_history = get_dashboard_data()
-
-    # --- Sidebar for configuration ---
+    # --- Sidebar ---
     with st.sidebar:
         st.header("Configuration")
         
@@ -404,86 +426,47 @@ def dashboard_page():
                     st.error("Trade failed. Check logs.")
 
     # --- Main Page Tabs ---
-    overview_tab, portfolio_tab, history_tab, volatility_tab = st.tabs(["📊 Overview", "💼 Portfolio", "📜 Trade History", "📈 Volatility Analysis"])
+    tab_overview, tab_portfolio, tab_trades, tab_vol = st.tabs(
+        ["📊 Overview", "🪙 Portfolio", "📜 Trade History", "📈 Volatility Analysis"]
+    )
 
-    with overview_tab:
-        # --- Portfolio Metrics ---
-        st.subheader("Portfolio Metrics")
-        col1, col2, col3, col4 = st.columns(4)
-
-        # Initialize default values
-        total_invested = 0.0
-        total_btc = 0.0
-        avg_price = 0.0
-        current_value = 0.0
-        pnl = 0.0
-        trade_count = 0
-
-        if not spot_history_df.empty:
-            spot_history_df['price'] = spot_history_df['px'].astype(float)
-            spot_history_df['quantity'] = spot_history_df['sz'].astype(float)
-            spot_history_df['is_buy'] = spot_history_df['side'] == 'B'
-            
-            total_btc_bought = spot_history_df[spot_history_df['is_buy']]['quantity'].sum()
-            total_btc_sold = spot_history_df[~spot_history_df['is_buy']]['quantity'].sum()
-            total_btc = total_btc_bought - total_btc_sold
-
-            total_usd_spent = (spot_history_df[spot_history_df['is_buy']]['quantity'] * spot_history_df[spot_history_df['is_buy']]['price']).sum()
-            total_usd_received = (spot_history_df[~spot_history_df['is_buy']]['quantity'] * spot_history_df[~spot_history_df['is_buy']]['price']).sum()
-            total_invested = total_usd_spent - total_usd_received
-
-            avg_price = total_invested / total_btc if total_btc > 0 else 0
-            current_value = total_btc * current_price
-            pnl = current_value - total_invested
-            trade_count = len(spot_history_df)
-
+    with tab_overview:
+        period = st.selectbox("Zeitraum", ["Alles", "Jahr", "Monat", "Woche", "Tag"])
+        
+        # Data fetching and calculation
+        spot_fills = bot.filter_by_period(bot.get_spot_fills(365 * 5), period)
+        realized_pnl = bot.calc_realized_pnl(spot_fills)
+        unrealized_pnl, position_size, avg_cost = bot.calc_unrealized_pnl()
+        
+        total_invested = sum(float(f["px"]) * float(f["sz"]) for f in spot_fills if f["side"] == "B")
+        
+        col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("BTC Price", f"${current_price:,.2f}")
-            st.metric("Average Price", f"${avg_price:,.2f}")
+            st.metric("Realisiert PnL", f"${realized_pnl:,.2f}")
         with col2:
-            st.metric("USDC Balance", f"${usdc_balance:,.2f}")
-            st.metric("Current Value", f"${current_value:,.2f}")
+            st.metric("Unrealisiert PnL", f"${unrealized_pnl:,.2f}")
         with col3:
-            st.metric("Total Invested", f"${total_invested:,.2f}")
-            st.metric("P&L", f"${pnl:,.2f}", delta=f"{((pnl/total_invested)*100 if total_invested > 0 else 0):.2f}%")
-        with col4:
-            st.metric("Total BTC", f"{total_btc:.8f}")
-            st.metric("Trade Count", f"{trade_count}")
+            st.metric("Total Investiert (im Zeitraum)", f"${total_invested:,.2f}")
 
-        st.divider()
+    with tab_portfolio:
+        st.info("Portfolio analysis will be implemented here.")
 
-        # --- Bot Status ---
-        st.subheader("◎ Bot Status")
-        status_col1, status_col2, status_col3 = st.columns(3)
-        with status_col1:
-            with st.container(border=True):
-                st.markdown(f"**Status:** {'🟢 Active' if bot.config.enabled else '🔴 Inactive'}")
-        with status_col2:
-            with st.container(border=True):
-                st.markdown(f"**Next Trade:** {'Ready' if bot.should_execute_trade() else 'Waiting'}")
-        with status_col3:
-            with st.container(border=True):
-                st.markdown(f"**Frequency:** {bot.config.frequency.capitalize()}")
-    
-    with portfolio_tab:
-        st.info("Portfolio analysis and charting will be implemented here in a future update.")
-
-    with history_tab:
+    with tab_trades:
         st.subheader("Spot Trade History (UBTC/USDC)")
-        if not spot_history_df.empty:
-            display_df = spot_history_df.copy()
-            display_df['time'] = pd.to_datetime(display_df['time'], unit='ms')
-            display_df['fee'] = display_df['fee'].astype(float)
-            display_df['total_usd'] = display_df['price'] * display_df['quantity']
-            st.dataframe(display_df[['time', 'coin', 'side', 'price', 'quantity', 'total_usd', 'fee']].sort_values('time', ascending=False))
+        if spot_fills:
+            df = pd.DataFrame(spot_fills)
+            df["time"] = pd.to_datetime(df["time"], unit="ms")
+            # Ensure required columns exist before displaying
+            display_cols = ["time", "side", "px", "sz", "closedPnl"]
+            for col in display_cols:
+                if col not in df.columns:
+                    df[col] = 0 # Add missing columns with default value
+            st.dataframe(df[display_cols].sort_values("time", ascending=False))
         else:
-            st.info("No UBTC spot trade history could be fetched from the API.")
-            if raw_history:
-                st.warning("Displaying raw history data below for diagnostics.")
-                st.dataframe(pd.DataFrame(raw_history))
-
-    with volatility_tab:
-        st.info("Volatility analysis and charting will be implemented here in a future update.")
+            st.info("No spot trades found for the selected period.")
+            
+    with tab_vol:
+        st.info("Volatility analysis will be implemented here.")
 
 
 def main():
