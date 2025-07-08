@@ -49,8 +49,8 @@ MIN_USDC_BALANCE = 100.0
 @dataclass
 class DCAConfig:
     """Configuration for DCA strategy"""
-    wallet_address: str
     private_key: str
+    wallet_address: Optional[str] = None
     base_amount: float = 50.0
     min_amount: float = 25.0
     max_amount: float = 100.0
@@ -272,9 +272,16 @@ def load_config() -> Optional[DCAConfig]:
     try:
         with open(CONFIG_FILE, 'r') as f:
             config_data = json.load(f)
+        
+        wallet_address = os.getenv("HYPERLIQUID_WALLET_ADDRESS") or config_data.get("wallet_address")
         private_key = os.getenv("HYPERLIQUID_PRIVATE_KEY") or config_data.get("private_key", "")
+
+        if not wallet_address:
+            st.error("Wallet address not found. Please set HYPERLIQUID_WALLET_ADDRESS in your .env file or dca_config.json.")
+            return None
+
         return DCAConfig(
-            wallet_address=os.getenv("HYPERLIQUID_WALLET_ADDRESS") or config_data.get("wallet_address", ""),
+            wallet_address=wallet_address,
             private_key=private_key,
             **{k: v for k, v in config_data.items() if k not in ["wallet_address", "private_key"]}
         )
@@ -287,7 +294,6 @@ def load_config() -> Optional[DCAConfig]:
 
 def save_config(config: DCAConfig):
     save_data = {
-        "wallet_address": config.wallet_address,
         "base_amount": config.base_amount,
         "min_amount": config.min_amount,
         "max_amount": config.max_amount,

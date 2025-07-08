@@ -62,11 +62,11 @@ nano .env
 ```
 Paste the following content into the editor, replacing the placeholder values with your actual secrets:
 ```env
+# Your public wallet address (required)
+HYPERLIQUID_WALLET_ADDRESS="your_wallet_address_here"
+
 # Your private key for the Hyperliquid wallet (must start with 0x)
 HYPERLIQUID_PRIVATE_KEY="your_private_key_here"
-
-# Your public wallet address
-HYPERLIQUID_WALLET_ADDRESS="your_wallet_address_here"
 
 # A strong, unique password to protect your Streamlit dashboard
 DCA_BOT_PASSWORD="a_strong_password_for_the_dashboard"
@@ -101,13 +101,13 @@ Description=Hyperliquid DCA Bot Streamlit Service
 After=network.target
 
 [Service]
-# Replace 'your_user' with your actual username
+# Replace 'your_user' with your actual username (e.g., 'root' or 'ubuntu')
 User=your_user
 Group=your_user
 
 # Replace 'your_user' with your actual username in the path
 WorkingDirectory=/home/your_user/hyperliquid-dca-bot
-ExecStart=/home/your_user/hyperliquid-dca-bot/.venv/bin/streamlit run /home/your_user/hyperliquid-dca-bot/hyperliquid_dca_bot.py --server.port 8501 --server.headless true
+ExecStart=/home/your_user/hyperliquid-dca-bot/.venv/bin/streamlit run /home/your_user/hyperliquid-dca-bot/hyperliquid_dca_bot.py --server.port 8501 --server.headless true --server.address=0.0.0.0
 
 Restart=always
 RestartSec=3
@@ -130,7 +130,7 @@ Add the following line to the bottom of the file. This example schedules the job
 
 ```cron
 # Run the Hyperliquid DCA bot script every Monday at 9:00 AM UTC
-0 9 * * 1 /home/your_user/hyperliquid-dca-bot/.venv/bin/python /home/your_user/hyperliquid-dca-bot/check_and_trade.py >> /home/your_user/hyperliquid-dca-bot/logs/cron.log 2>&1
+0 9 * * 1 /home/your_user/hyperliquid-dca-bot/.venv/bin/python /home/your_user/hyperliquid-dca-bot/check_and_trade.py >> /home/your_user/hyperliquid-dca-bot/cron.log 2>&1
 ```
 This command does three things:
 1.  Specifies the schedule (`0 9 * * 1`).

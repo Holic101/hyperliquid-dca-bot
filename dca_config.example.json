@@ -1,5 +1,4 @@
 {
-  "wallet_address": "",
   "base_amount": 50,
   "min_amount": 25,
   "max_amount": 100,
