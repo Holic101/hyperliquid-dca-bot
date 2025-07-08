@@ -389,8 +389,16 @@ def dashboard_page():
         if raw_history:
             history_df = pd.DataFrame(raw_history)
             
-            # Filter for spot trades and relevant columns
-            spot_history_df = history_df[history_df['asset'] == 'UBTC'].copy()
+            # Check if 'asset' column exists to prevent KeyError
+            if 'asset' in history_df.columns:
+                # Filter for spot trades and relevant columns
+                spot_history_df = history_df[history_df['asset'] == 'UBTC'].copy()
+            else:
+                # If 'asset' column is missing, display a warning and the raw data for debugging.
+                st.warning("The 'asset' column was not found in the trade history from the API. This can happen if there are no spot trades. Displaying raw history data below for diagnostics.")
+                st.dataframe(history_df)
+                spot_history_df = pd.DataFrame() # Create empty DataFrame to prevent further errors
+
 
             if not spot_history_df.empty:
                 # Process and format the DataFrame
