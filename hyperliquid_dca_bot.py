@@ -281,13 +281,31 @@ class HyperliquidDCABot:
     # --- NEU: Spot-PnL-Utils ---
     def get_spot_fills(self, days: int = 365 * 5):
         """Alle Spot-Fills der letzten <days> Tage holen & filtern."""
-        start_ms = int((datetime.utcnow() - timedelta(days=days)).timestamp() * 1000)
-        fills = self.info.user_fills_by_time(self.config.wallet_address, start_time=start_ms)
-        
-        # Temporary log to inspect all fills
-        logger.debug(f"Raw user fills from API: {fills}")
+        try:
+            # First, find the internal asset index for BTC
+            spot_meta = self.info.spot_meta()
+            btc_asset_index = None
+            for asset in spot_meta.get("universe", []):
+                if asset.get("name") == BITCOIN_SYMBOL:
+                    btc_asset_index = asset.get("spotAssetIndex")
+                    break
+            
+            if btc_asset_index is None:
+                logger.error("Could not find spot asset index for BTC. Cannot fetch fills.")
+                return []
 
-        return [f for f in fills if f["coin"] == BITCOIN_SYMBOL]
+            internal_btc_symbol = f"@{btc_asset_index}"
+            logger.info(f"Found internal symbol for BTC: {internal_btc_symbol}")
+
+            # Now, fetch fills and filter by the internal symbol
+            start_ms = int((datetime.utcnow() - timedelta(days=days)).timestamp() * 1000)
+            fills = self.info.user_fills_by_time(self.config.wallet_address, start_time=start_ms)
+            
+            return [f for f in fills if f.get("coin") == internal_btc_symbol]
+
+        except Exception as e:
+            logger.error(f"Error getting spot fills: {e}", exc_info=True)
+            return []
 
     def calc_realized_pnl(self, fills):
         """Summe der realisierten USDC-Gewinne."""
@@ -476,8 +494,8 @@ def dashboard_page():
 
 
     # --- Main Page Tabs ---
-    tab_overview, tab_portfolio, tab_trades, tab_vol, tab_debug = st.tabs(
-        ["📊 Overview", "🪙 Portfolio", "📜 Trade History", "📈 Volatility Analysis", "🐞 Debug"]
+    tab_overview, tab_portfolio, tab_trades, tab_vol = st.tabs(
+        ["📊 Overview", "🪙 Portfolio", "📜 Trade History", "📈 Volatility Analysis"]
     )
 
     with tab_overview:
@@ -518,14 +536,6 @@ def dashboard_page():
     with tab_vol:
         st.info("Volatility analysis will be implemented here.")
 
-    with tab_debug:
-        st.header("Raw API Data for Debugging")
-        st.write("This tab shows the raw, unfiltered trade data from the API to help with debugging.")
-        if st.button("Fetch Raw Fills"):
-            with st.spinner("Fetching raw data..."):
-                all_fills = bot.info.user_fills(bot.config.wallet_address)
-                st.write(f"Found {len(all_fills)} total fills (spot and perpetual).")
-                st.json(all_fills)
 
 def main():
     """Main Streamlit app function"""
