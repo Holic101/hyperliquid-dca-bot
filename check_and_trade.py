@@ -8,6 +8,7 @@ import json
 import os
 import sys
 import logging
+import argparse # Add this import
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
@@ -36,6 +37,13 @@ logger = logging.getLogger(__name__)
 
 async def main():
     """Main execution function"""
+    parser = argparse.ArgumentParser(description="Hyperliquid DCA Bot automated trading script.")
+    parser.add_argument("--force", action="store_true", help="Force a trade to execute, ignoring the frequency schedule.")
+    args = parser.parse_args()
+
+    if args.force:
+        logger.info("⚡️ --force flag detected. Attempting to execute trade immediately.")
+
     logger.info("=== Starting DCA Bot Automated Check ===")
     
     try:
@@ -75,8 +83,8 @@ async def main():
         bot = HyperliquidDCABot(config)
         logger.info(f"Bot initialized for wallet: {config.wallet_address[:6]}...{config.wallet_address[-4:]}")
         
-        # Check if trade should execute
-        if not bot.should_execute_trade():
+        # Check if trade should execute, unless --force is used
+        if not args.force and not bot.should_execute_trade():
             logger.info("Not time to execute trade based on frequency setting.")
             if bot.trade_history:
                 last_trade = bot.trade_history[-1]
@@ -111,5 +119,7 @@ async def main():
         logger.info("=== DCA Bot Automated Check Complete ===\n")
 
 if __name__ == "__main__":
+    # Note: asyncio.run creates a new event loop.
+    # If this script were part of a larger asyncio app, you might manage the loop differently.
     exit_code = asyncio.run(main())
     sys.exit(exit_code) 
