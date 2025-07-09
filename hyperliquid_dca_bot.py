@@ -214,30 +214,38 @@ class HyperliquidDCABot:
             )
 
             if order_result["status"] == "ok":
-                tx_hash = order_result["response"]["data"]["statuses"][0].get("txHash")
-                logger.info(f"✅ Trade executed successfully! Tx Hash: {tx_hash}")
+                statuses = order_result["response"]["data"]["statuses"]
+                tx_hash = statuses[0].get("txHash") if statuses else None
 
-                # Send Telegram notification on success
-                success_message = (
-                    f"✅ **Trade Executed**\n\n"
-                    f"Bought **{size_btc:.6f} BTC** for **${position_size_usd:,.2f}**\n"
-                    f"Price: `${current_price:,.2f}`\n"
-                    f"Volatility: `{volatility:.2f}%`\n\n"
-                    f"Tx: `{tx_hash}`"
-                )
-                await send_telegram_message(success_message)
+                if tx_hash:
+                    logger.info(f"✅ Trade executed successfully! Tx Hash: {tx_hash}")
 
-                trade = TradeRecord(
-                    timestamp=datetime.now(),
-                    price=current_price,
-                    amount_usd=position_size_usd,
-                    amount_btc=size_btc,
-                    volatility=volatility if volatility is not None else 0,
-                    tx_hash=tx_hash
-                )
-                self.trade_history.append(trade)
-                self.save_history()
-                return trade
+                    # Send Telegram notification on success
+                    success_message = (
+                        f"✅ **Trade Executed**\n\n"
+                        f"Bought **{size_btc:.6f} BTC** for **${position_size_usd:,.2f}**\n"
+                        f"Price: `${current_price:,.2f}`\n"
+                        f"Volatility: `{volatility:.2f}%`\n\n"
+                        f"Tx: `{tx_hash}`"
+                    )
+                    await send_telegram_message(success_message)
+
+                    trade = TradeRecord(
+                        timestamp=datetime.now(),
+                        price=current_price,
+                        amount_usd=position_size_usd,
+                        amount_btc=size_btc,
+                        volatility=volatility if volatility is not None else 0,
+                        tx_hash=tx_hash
+                    )
+                    self.trade_history.append(trade)
+                    self.save_history()
+                    return trade
+                else:
+                    # This case handles when the order is accepted but not filled (e.g., an IoC that doesn't fill)
+                    logger.warning("⚠️ Trade submitted but not filled (no tx_hash). Order likely expired or was cancelled immediately.")
+                    await send_telegram_message("⚠️ **Trade Warning:**\nOrder submitted but may not have filled (no tx_hash found).")
+                    return None
             else:
                 error_info = order_result.get("response", "No response data.")
                 logger.error(f"❌ Trade failed: {error_info}")
