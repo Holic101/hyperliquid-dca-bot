@@ -283,7 +283,11 @@ class HyperliquidDCABot:
         """Alle Spot-Fills der letzten <days> Tage holen & filtern."""
         start_ms = int((datetime.utcnow() - timedelta(days=days)).timestamp() * 1000)
         fills = self.info.user_fills_by_time(self.config.wallet_address, start_time=start_ms)
-        return [f for f in fills if f["coin"] == BITCOIN_SPOT_SYMBOL]
+        
+        # Temporary log to inspect all fills
+        logger.debug(f"Raw user fills from API: {fills}")
+
+        return [f for f in fills if f["coin"] == BITCOIN_SYMBOL]
 
     def calc_realized_pnl(self, fills):
         """Summe der realisierten USDC-Gewinne."""
@@ -293,7 +297,7 @@ class HyperliquidDCABot:
         """Bestand, Kostenbasis & unrealisierte PnL via balances + Mid."""
         try:
             spot_state = self.info.spot_user_state(self.config.wallet_address)
-            bal = next((b for b in spot_state["balances"] if b["coin"] == "UBTC"), None)
+            bal = next((b for b in spot_state["balances"] if b["coin"] == BITCOIN_SYMBOL), None)
             if not bal:
                 return 0.0, 0.0, 0.0
             
