@@ -70,8 +70,7 @@ logger.addHandler(file_handler)
 BASE_URL = constants.MAINNET_API_URL
 CONFIG_FILE = "dca_config.json"
 HISTORY_FILE = "dca_history.json"
-BITCOIN_SYMBOL = "BTC"
-BITCOIN_SPOT_SYMBOL = "UBTC/USDC"
+BITCOIN_SYMBOL = "BTC/USDC" # Corrected for spot market
 MIN_USDC_BALANCE = 100.0
 
 @dataclass
@@ -235,7 +234,7 @@ class HyperliquidDCABot:
 
             logger.info(f"Attempting to place spot order: size={size_btc:.8f} BTC (${position_size_usd:.2f}) at price ~${current_price:,.2f}")
             order_result = self.exchange.order(
-                BITCOIN_SPOT_SYMBOL, True, size_btc, current_price, {"limit": {"tif": "Ioc"}}
+                BITCOIN_SYMBOL, True, size_btc, current_price, {"limit": {"tif": "Ioc"}}
             )
 
             if order_result["status"] == "ok":
@@ -282,20 +281,31 @@ class HyperliquidDCABot:
             return None
 
     async def get_spot_asset_index(self, asset_name: str) -> Optional[int]:
-        """Dynamically find the spot asset index for a given asset name."""
+        """Gets the spot asset index for a given asset name, e.g., 'BTC'."""
+        # The API expects asset names in 'ASSET/USDC' format, e.g., 'BTC/USDC'
+        expected_asset_name = f"{asset_name.upper()}/USDC"
         try:
-            spot_meta = await asyncio.to_thread(self.info.spot_meta)
-            for asset in spot_meta.get("universe", []):
-                if asset.get("name") == asset_name:
-                    return asset.get("spotAssetIndex")
-            logger.warning(f"Spot asset index for '{asset_name}' not found.")
+            logger.info(f"Attempting to fetch spot metadata to find index for '{expected_asset_name}'...")
+            spot_meta_data = self.info.spot_meta_data()
+            universe = spot_meta_data.get("universe", [])
+            logger.info(f"Successfully fetched spot metadata. Universe size: {len(universe)}")
+
+            for asset in universe:
+                asset_name_from_api = asset.get('name')
+                logger.info(f"Checking asset from API: '{asset_name_from_api}'")
+                if asset_name_from_api == expected_asset_name:
+                    asset_index = asset.get('asset')
+                    logger.info(f"Found match for {expected_asset_name}! Index: {asset_index}.")
+                    return asset_index
+
+            logger.error(f"Could not find spot asset index for {expected_asset_name} in the API's universe. Cannot fetch fills.")
             return None
         except Exception as e:
-            logger.error(f"Error fetching spot meta information: {e}")
+            logger.error(f"An error occurred while fetching spot asset index for {expected_asset_name}: {e}", exc_info=True)
             return None
 
     async def get_usdc_balance(self) -> float:
-        """Fetches the user's USDC spot balance."""
+        """Gets the user's spot USDC balance."""
         try:
             spot_state = self.info.spot_user_state(self.config.wallet_address)
             return next((float(b["total"]) for b in spot_state.get("balances", []) if b["coin"] == "USDC"), 0.0)
@@ -358,7 +368,7 @@ class HyperliquidDCABot:
             pos_sz = float(bal["total"])
             cost_basis = float(bal.get("entryNtl", 0)) / pos_sz if pos_sz else 0
             mid_prices = self.info.all_mids()
-            mid = float(mid_prices.get(BITCOIN_SPOT_SYMBOL.split('/')[0], 0))
+            mid = float(mid_prices.get(BITCOIN_SYMBOL.split('/')[0], 0))
             
             unrealized_pnl = pos_sz * (mid - cost_basis) if mid > 0 else 0
             return unrealized_pnl, pos_sz, cost_basis
