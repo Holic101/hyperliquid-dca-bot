@@ -21,6 +21,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 from pycoingecko import CoinGeckoAPI
 
+# Local imports
+from notifications import send_telegram_message
+
 # Hyperliquid SDK imports
 from hyperliquid.info import Info
 from hyperliquid.exchange import Exchange
@@ -181,19 +184,25 @@ class HyperliquidDCABot:
     async def execute_dca_trade(self) -> Optional[TradeRecord]:
         if not self.exchange or not self.account:
             logger.error("Exchange not initialized. Private key might be missing.")
+            await send_telegram_message("❌ **Trade Error:** Bot is not initialized. Private key might be missing.")
             return None
         try:
             spot_state = self.info.spot_user_state(self.config.wallet_address)
             usdc_balance = next((float(b["total"]) for b in spot_state.get("balances", []) if b["coin"] == "USDC"), 0.0)
             if usdc_balance < MIN_USDC_BALANCE:
-                logger.error(f"Trade skipped: Balance ({usdc_balance:.2f}) is below minimum (${MIN_USDC_BALANCE:.2f}).")
+                message = f"⚠️ **Trade Skipped:** Balance ({usdc_balance:.2f} USDC) is below minimum threshold (${MIN_USDC_BALANCE:.2f} USDC)."
+                logger.error(message)
+                await send_telegram_message(message)
                 return None
 
             historical_prices = await self.get_historical_prices(self.config.volatility_window + 5)
             volatility = self.volatility_calc.calculate_volatility(historical_prices)
             position_size_usd = self.calculate_position_size(volatility)
             current_price = await self.get_btc_price()
-            size_btc = position_size_usd / current_price
+            size_btc_unrounded = position_size_usd / current_price
+            
+            # Round to 5 decimal places to avoid float_to_wire error
+            size_btc = round(size_btc_unrounded, 5)
 
             if position_size_usd < 10:
                 logger.warning(f"Calculated trade size (${position_size_usd:.2f}) is below the $10 minimum. Skipping trade.")
@@ -207,6 +216,17 @@ class HyperliquidDCABot:
             if order_result["status"] == "ok":
                 tx_hash = order_result["response"]["data"]["statuses"][0].get("txHash")
                 logger.info(f"✅ Trade executed successfully! Tx Hash: {tx_hash}")
+
+                # Send Telegram notification on success
+                success_message = (
+                    f"✅ **Trade Executed**\n\n"
+                    f"Bought **{size_btc:.6f} BTC** for **${position_size_usd:,.2f}**\n"
+                    f"Price: `${current_price:,.2f}`\n"
+                    f"Volatility: `{volatility:.2f}%`\n\n"
+                    f"Tx: `{tx_hash}`"
+                )
+                await send_telegram_message(success_message)
+
                 trade = TradeRecord(
                     timestamp=datetime.now(),
                     price=current_price,
@@ -219,10 +239,13 @@ class HyperliquidDCABot:
                 self.save_history()
                 return trade
             else:
-                logger.error(f"❌ Trade failed: {order_result}")
+                error_info = order_result.get("response", "No response data.")
+                logger.error(f"❌ Trade failed: {error_info}")
+                await send_telegram_message(f"❌ **Trade Failed:**\n`{error_info}`")
                 return None
         except Exception as e:
             logger.error(f"Error during DCA trade execution: {e}", exc_info=True)
+            await send_telegram_message(f"🚨 **Bot Error:**\nAn unexpected error occurred during trade execution:\n`{e}`")
             return None
 
     async def get_spot_asset_index(self, asset_name: str) -> Optional[int]:
