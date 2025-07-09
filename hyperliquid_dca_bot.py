@@ -286,7 +286,7 @@ class HyperliquidDCABot:
         expected_asset_name = f"{asset_name.upper()}/USDC"
         try:
             logger.info(f"Attempting to fetch spot metadata to find index for '{expected_asset_name}'...")
-            spot_meta_data = self.info.spot_meta_data()
+            spot_meta_data = self.info.spot_meta()
             universe = spot_meta_data.get("universe", [])
             logger.info(f"Successfully fetched spot metadata. Universe size: {len(universe)}")
 
