@@ -292,18 +292,24 @@ class HyperliquidDCABot:
             tokens_map = {token['name']: token['index'] for token in spot_meta_data.get("tokens", [])}
             logger.info(f"Built token map: {tokens_map}")
 
-            # Step 2: Get the indices for the base asset (e.g., BTC) and the quote asset (USDC).
-            base_asset_token_index = tokens_map.get(asset_name.upper())
+            # Handle API-specific ticker names. The API uses "UBTC" for Bitcoin.
+            lookup_asset_name = asset_name.upper()
+            if lookup_asset_name == "BTC":
+                lookup_asset_name = "UBTC"
+                logger.info("Mapping 'BTC' to 'UBTC' for API lookup.")
+
+            # Step 2: Get the indices for the base asset (e.g., UBTC) and the quote asset (USDC).
+            base_asset_token_index = tokens_map.get(lookup_asset_name)
             quote_asset_token_index = tokens_map.get("USDC")
 
             if base_asset_token_index is None:
-                logger.error(f"Could not find token index for base asset '{asset_name.upper()}' in the API's token list.")
+                logger.error(f"Could not find token index for base asset '{lookup_asset_name}' in the API's token list.")
                 return None
             if quote_asset_token_index is None:
                 logger.error("Could not find token index for quote asset 'USDC' in the API's token list.")
                 return None
                 
-            logger.info(f"Found token indices -> {asset_name.upper()}: {base_asset_token_index}, USDC: {quote_asset_token_index}")
+            logger.info(f"Found token indices -> {lookup_asset_name}: {base_asset_token_index}, USDC: {quote_asset_token_index}")
 
             # Step 3: Iterate through the universe to find the spot asset index for the pair.
             universe = spot_meta_data.get("universe", [])
