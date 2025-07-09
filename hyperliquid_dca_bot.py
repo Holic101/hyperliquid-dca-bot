@@ -317,34 +317,22 @@ class HyperliquidDCABot:
     def get_spot_fills(self, days: int = 365 * 5):
         """Alle Spot-Fills der letzten <days> Tage holen & filtern."""
         try:
-            # Step 1: Find the internal asset index for BTC
-            logger.info("Attempting to fetch spot metadata...")
-            spot_meta = self.info.spot_meta()
-            logger.info(f"Successfully fetched spot metadata. Universe size: {len(spot_meta.get('universe', []))}")
-
-            btc_asset_index = None
-            for asset in spot_meta.get("universe", []):
-                # Log each asset name to find the correct one
-                asset_name = asset.get("name")
-                logger.info(f"Checking asset: {asset_name}")
-                if asset_name == BITCOIN_SYMBOL:
-                    btc_asset_index = asset.get("spotAssetIndex")
-                    break
+            # Step 1: Use the single, correct function to get the asset index.
+            # We use asyncio.run because this function is synchronous, but the one we're calling is async.
+            btc_asset_index = asyncio.run(self.get_spot_asset_index("BTC"))
             
             if btc_asset_index is None:
-                logger.error("Could not find spot asset index for BTC. Cannot fetch fills.")
+                # The error is now correctly reported from the source function.
                 return []
 
-            internal_btc_symbol = f"@{btc_asset_index}"
-            logger.info(f"Found internal symbol for BTC: {internal_btc_symbol}")
-
-            # Step 2: Fetch fills and filter by the internal symbol
+            # Step 2: Fetch fills and filter by the asset index
             start_ms = int((datetime.utcnow() - timedelta(days=days)).timestamp() * 1000)
             logger.info("Fetching user fills from API...")
             fills = self.info.user_fills_by_time(self.config.wallet_address, start_time=start_ms)
             logger.info(f"Found {len(fills)} total user fills (before filtering).")
             
-            filtered_fills = [f for f in fills if f.get("coin") == internal_btc_symbol]
+            # The API returns fills with the asset index in the 'asset' field.
+            filtered_fills = [f for f in fills if f.get("asset") == btc_asset_index]
             logger.info(f"Found {len(filtered_fills)} spot BTC fills (after filtering).")
             
             return filtered_fills
