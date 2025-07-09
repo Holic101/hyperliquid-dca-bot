@@ -282,8 +282,11 @@ class HyperliquidDCABot:
     def get_spot_fills(self, days: int = 365 * 5):
         """Alle Spot-Fills der letzten <days> Tage holen & filtern."""
         try:
-            # First, find the internal asset index for BTC
+            # Step 1: Find the internal asset index for BTC
+            logger.info("Attempting to fetch spot metadata...")
             spot_meta = self.info.spot_meta()
+            logger.info(f"Successfully fetched spot metadata. Universe size: {len(spot_meta.get('universe', []))}")
+
             btc_asset_index = None
             for asset in spot_meta.get("universe", []):
                 if asset.get("name") == BITCOIN_SYMBOL:
@@ -297,11 +300,16 @@ class HyperliquidDCABot:
             internal_btc_symbol = f"@{btc_asset_index}"
             logger.info(f"Found internal symbol for BTC: {internal_btc_symbol}")
 
-            # Now, fetch fills and filter by the internal symbol
+            # Step 2: Fetch fills and filter by the internal symbol
             start_ms = int((datetime.utcnow() - timedelta(days=days)).timestamp() * 1000)
+            logger.info("Fetching user fills from API...")
             fills = self.info.user_fills_by_time(self.config.wallet_address, start_time=start_ms)
+            logger.info(f"Found {len(fills)} total user fills (before filtering).")
             
-            return [f for f in fills if f.get("coin") == internal_btc_symbol]
+            filtered_fills = [f for f in fills if f.get("coin") == internal_btc_symbol]
+            logger.info(f"Found {len(filtered_fills)} spot BTC fills (after filtering).")
+            
+            return filtered_fills
 
         except Exception as e:
             logger.error(f"Error getting spot fills: {e}", exc_info=True)
