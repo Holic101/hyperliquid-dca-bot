@@ -20,6 +20,7 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 from pycoingecko import CoinGeckoAPI
+import sys
 
 # Local imports
 from notifications import send_telegram_message
@@ -37,9 +38,33 @@ from eth_account.signers.local import LocalAccount
 # Load environment variables from .env file
 load_dotenv()
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# --- Robust Logging Setup ---
+# When running via Streamlit, basicConfig can be unreliable. This is a more robust way.
+log_directory = Path(__file__).parent / "logs"
+log_directory.mkdir(exist_ok=True)
+log_file_path = log_directory / f"dca_bot_dashboard_{datetime.now().strftime('%Y%m%d')}.log"
+
+# Get the root logger
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+# Remove existing handlers to avoid duplicates
+if logger.hasHandlers():
+    logger.handlers.clear()
+
+# Create handlers
+stream_handler = logging.StreamHandler(sys.stdout)
+file_handler = logging.FileHandler(log_file_path)
+
+# Create formatters and add it to handlers
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+stream_handler.setFormatter(formatter)
+file_handler.setFormatter(formatter)
+
+# Add handlers to the logger
+logger.addHandler(stream_handler)
+logger.addHandler(file_handler)
+# --- End Logging Setup ---
 
 # Constants
 BASE_URL = constants.MAINNET_API_URL
