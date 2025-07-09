@@ -314,7 +314,10 @@ class HyperliquidDCABot:
 
             btc_asset_index = None
             for asset in spot_meta.get("universe", []):
-                if asset.get("name") == BITCOIN_SYMBOL:
+                # Log each asset name to find the correct one
+                asset_name = asset.get("name")
+                logger.info(f"Checking asset: {asset_name}")
+                if asset_name == BITCOIN_SYMBOL:
                     btc_asset_index = asset.get("spotAssetIndex")
                     break
             
