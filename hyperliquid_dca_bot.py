@@ -448,13 +448,28 @@ def dashboard_page():
             st.rerun()
 
         st.header("Manual Control")
-        if st.button("Execute Manual Trade"):
-            with st.spinner("Executing trade..."):
-                trade_record = asyncio.run(bot.execute_dca_trade())
-                if trade_record:
-                    st.success(f"Trade executed! Bought {trade_record.amount_btc:.6f} BTC.")
-                else:
-                    st.error("Trade failed. Check logs.")
+        if st.button("Execute Manual Trade", type="primary"):
+            with st.spinner("Executing trade... Please wait."):
+                try:
+                    # Run the async function
+                    trade_record = asyncio.run(bot.execute_dca_trade())
+                    
+                    if trade_record and trade_record.tx_hash:
+                        st.success(f"✅ Trade executed! Bought {trade_record.amount_btc:.6f} BTC.")
+                    elif trade_record:
+                         st.warning("⚠️ Trade submitted but may not have filled (no tx_hash).")
+                    else:
+                        st.error("❌ Trade failed. Check logs for details.")
+                    
+                    # Add a small delay so the user can read the message before rerun
+                    time.sleep(3)
+                    st.rerun()
+
+                except Exception as e:
+                    st.error(f"An error occurred: {e}")
+                    time.sleep(3)
+                    st.rerun()
+
 
     # --- Main Page Tabs ---
     tab_overview, tab_portfolio, tab_trades, tab_vol = st.tabs(
