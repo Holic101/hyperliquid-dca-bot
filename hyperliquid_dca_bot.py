@@ -476,8 +476,8 @@ def dashboard_page():
 
 
     # --- Main Page Tabs ---
-    tab_overview, tab_portfolio, tab_trades, tab_vol = st.tabs(
-        ["📊 Overview", "🪙 Portfolio", "📜 Trade History", "📈 Volatility Analysis"]
+    tab_overview, tab_portfolio, tab_trades, tab_vol, tab_debug = st.tabs(
+        ["📊 Overview", "🪙 Portfolio", "📜 Trade History", "📈 Volatility Analysis", "🐞 Debug"]
     )
 
     with tab_overview:
@@ -518,6 +518,14 @@ def dashboard_page():
     with tab_vol:
         st.info("Volatility analysis will be implemented here.")
 
+    with tab_debug:
+        st.header("Raw API Data for Debugging")
+        st.write("This tab shows the raw, unfiltered trade data from the API to help with debugging.")
+        if st.button("Fetch Raw Fills"):
+            with st.spinner("Fetching raw data..."):
+                all_fills = bot.info.user_fills(bot.config.wallet_address)
+                st.write(f"Found {len(all_fills)} total fills (spot and perpetual).")
+                st.json(all_fills)
 
 def main():
     """Main Streamlit app function"""
