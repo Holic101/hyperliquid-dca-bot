@@ -281,15 +281,13 @@ class HyperliquidDCABot:
             return None
 
     async def get_spot_asset_index(self, asset_name: str) -> Optional[int]:
-        """Gets the spot asset index for a given asset name, e.g., 'BTC'."""
-        # The API expects asset names in 'ASSET/USDC' format, e.g., 'BTC/USDC'
-        expected_asset_name = f"{asset_name.upper()}/USDC"
+        """Gets the spot asset TOKEN index for a given asset name, e.g., 'BTC'."""
         try:
-            logger.info(f"Attempting to fetch spot metadata to find index for '{asset_name}'...")
-            spot_meta_data = self.info.spot_meta()
+            logger.info(f"Attempting to fetch spot metadata to find TOKEN index for '{asset_name}'...")
+            spot_meta = self.info.spot_meta()
             
             # Step 1: Create a mapping from token symbol (e.g., "BTC") to its index.
-            tokens_map = {token['name']: token['index'] for token in spot_meta_data.get("tokens", [])}
+            tokens_map = {token['name']: token['index'] for token in spot_meta.get("tokens", [])}
             logger.info(f"Built token map: {tokens_map}")
 
             # Handle API-specific ticker names. The API uses "UBTC" for Bitcoin.
@@ -298,30 +296,15 @@ class HyperliquidDCABot:
                 lookup_asset_name = "UBTC"
                 logger.info("Mapping 'BTC' to 'UBTC' for API lookup.")
 
-            # Step 2: Get the indices for the base asset (e.g., UBTC) and the quote asset (USDC).
+            # Step 2: Get the token index for the base asset (e.g., UBTC).
             base_asset_token_index = tokens_map.get(lookup_asset_name)
-            quote_asset_token_index = tokens_map.get("USDC")
 
             if base_asset_token_index is None:
                 logger.error(f"Could not find token index for base asset '{lookup_asset_name}' in the API's token list.")
                 return None
-            if quote_asset_token_index is None:
-                logger.error("Could not find token index for quote asset 'USDC' in the API's token list.")
-                return None
-                
-            logger.info(f"Found token indices -> {lookup_asset_name}: {base_asset_token_index}, USDC: {quote_asset_token_index}")
-
-            # Step 3: Iterate through the universe to find the spot asset index for the pair.
-            universe = spot_meta_data.get("universe", [])
-            logger.info(f"Searching through API universe of size {len(universe)}...")
-            for asset_pair in universe:
-                if asset_pair.get("tokens") == [base_asset_token_index, quote_asset_token_index]:
-                    spot_asset_index = asset_pair.get("index")
-                    logger.info(f"Found match for {asset_name}/USDC! Spot Asset Index: {spot_asset_index}.")
-                    return spot_asset_index
-
-            logger.error(f"Could not find spot asset index for {asset_name}/USDC in the API's universe. Cannot fetch fills.")
-            return None
+            
+            logger.info(f"Successfully found token index for {lookup_asset_name}: {base_asset_token_index}")
+            return base_asset_token_index
 
         except Exception as e:
             logger.error(f"An unexpected error occurred in get_spot_asset_index: {e}", exc_info=True)
