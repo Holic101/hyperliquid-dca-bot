@@ -1,5 +1,8 @@
-# notifications.py
 import os
+print(f"!!! EXECUTING NOTIFICATIONS SCRIPT FROM: {os.path.abspath(__file__)} !!!")
+raise SystemExit("DEBUG: Halting execution to confirm file path.")
+
+# notifications.py
 import httpx
 from dotenv import load_dotenv
 
