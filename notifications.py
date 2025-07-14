@@ -1,6 +1,7 @@
 # notifications.py
 import os
-import telegram
+import httpx
+import urllib.parse
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -9,17 +10,27 @@ load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-async def send_telegram_message(message):
+async def send_telegram_message(message: str):
     """
-    Sends a message to the pre-configured Telegram chat.
+    Sends a message to the pre-configured Telegram chat using a direct HTTP request.
+    This method is more robust for handling special characters in the message.
     """
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         print("Telegram environment variables (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID) not set. Skipping notification.")
         return
 
+    # URL-encode the message text to be safely used in a URL
+    encoded_message = urllib.parse.quote_plus(message)
+    
+    # Construct the full URL for the Telegram Bot API
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage?chat_id={TELEGRAM_CHAT_ID}&text={encoded_message}&parse_mode=Markdown"
+
     try:
-        bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
-        await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode='Markdown')
-        print(f"Successfully sent Telegram notification.")
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url)
+            response.raise_for_status()  # Will raise an exception for 4xx/5xx responses
+        print("Successfully sent Telegram notification.")
+    except httpx.HTTPStatusError as e:
+        print(f"Error sending Telegram notification: HTTP Status {e.response.status_code} - {e.response.text}")
     except Exception as e:
-        print(f"Error sending Telegram notification: {e}") 
+        print(f"An unexpected error occurred sending Telegram notification: {e}") 
