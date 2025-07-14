@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from hyperliquid_dca_bot import HyperliquidDCABot, DCAConfig
+from notifications import send_telegram_message
 
 # Load environment variables
 load_dotenv()
@@ -88,7 +89,16 @@ async def main():
             logger.info("Not time to execute trade based on frequency setting.")
             if bot.trade_history:
                 last_trade = bot.trade_history[-1]
-                logger.info(f"Last trade was on: {last_trade.timestamp.strftime('%Y-%m-%d %H:%M')}")
+                last_trade_time_str = last_trade.timestamp.strftime('%Y-%m-%d %H:%M')
+                logger.info(f"Last trade was on: {last_trade_time_str}")
+                
+                # Send a notification that the trade was skipped
+                message = (
+                    f"ℹ️ **Trade Skipped (Scheduled Check)**\n\n"
+                    f"No trade was executed because not enough time has passed based on your frequency setting (`{config.frequency}`).\n\n"
+                    f"Last trade was on: `{last_trade_time_str}`"
+                )
+                await send_telegram_message(message)
             return 0
         
         # Execute DCA trade
