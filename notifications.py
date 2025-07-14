@@ -1,7 +1,6 @@
 # notifications.py
 import os
 import httpx
-import urllib.parse
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -19,15 +18,18 @@ async def send_telegram_message(message: str):
         print("Telegram environment variables (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID) not set. Skipping notification.")
         return
 
-    # URL-encode the message text to be safely used in a URL
-    encoded_message = urllib.parse.quote_plus(message)
+    base_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     
-    # Construct the full URL for the Telegram Bot API
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage?chat_id={TELEGRAM_CHAT_ID}&text={encoded_message}&parse_mode=Markdown"
+    # Let the httpx library handle URL encoding by passing parameters as a dictionary
+    params = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown"
+    }
 
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get(url)
+            response = await client.get(base_url, params=params)
             response.raise_for_status()  # Will raise an exception for 4xx/5xx responses
         print("Successfully sent Telegram notification.")
     except httpx.HTTPStatusError as e:
