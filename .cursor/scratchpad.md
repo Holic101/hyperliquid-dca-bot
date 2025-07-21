@@ -1,65 +1,88 @@
-# Hyperliquid DCA Bot: Feature - Comprehensive Trade History
+# Scratchpad: Multi-Asset Support Implementation Plan
 
-## 1. Background and Motivation
+## Background and Motivation
+The current bot is designed to trade a single asset (Bitcoin). To increase its utility and allow for portfolio diversification, we need to refactor the architecture to support trading multiple assets simultaneously, each with its own independent DCA strategy. This plan details the necessary changes to the configuration, core logic, state management, and user interface.
 
-The user wants to enhance the Streamlit dashboard to display their **entire** Hyperliquid spot trading history for the connected wallet, not just the trades executed by this specific DCA bot.
+---
 
-This will transform the dashboard from a bot-specific monitor into a more comprehensive portfolio analysis tool, providing a complete and accurate view of all trading activity.
+## High-level Task Breakdown
 
-## 2. Key Challenges and Analysis
+This plan is broken down into four main phases:
+1.  **Configuration Rearchitecture:** Change the structure of the configuration file and data classes to accommodate multiple assets.
+2.  **Core Logic Refactoring:** Adapt the trading and data-fetching logic to operate on a per-asset basis.
+3.  **State Management Update:** Modify the trade history to be asset-aware.
+4.  **Dashboard Enhancement:** Update the Streamlit UI to display data for multiple assets.
 
--   **Finding the Right API Endpoint:** The Hyperliquid Python SDK must be used to fetch the user's historical fills (trades). We need to identify the correct function (likely `info.user_fills`) and understand its parameters and the structure of the data it returns.
--   **Data Merging (Optional but ideal):** The data from the API (the "source of truth") won't include the bot-specific context we store in `dca_history.json` (e.g., the volatility at the time of the trade). A simple implementation will just show the API data. A more advanced one could merge these two data sources. For this plan, we will focus on the simple, direct implementation first: displaying the complete history from the API.
--   **UI Integration:** The new, comprehensive trade history needs to be seamlessly integrated into the existing Streamlit dashboard, replacing the current table that only shows bot-specific trades. We must ensure the data is presented clearly.
+---
 
-## 3. High-level Task Breakdown
+## Project Status Board
 
-### Phase 1: API Integration & Data Fetching
+### Phase 1: Configuration Rearchitecture
+- [ ] **Task 1.1:** Redesign `dca_config.json` to support a list of assets.
+- [ ] **Task 1.2:** Create new Python dataclasses (`AssetConfig`, `GlobalConfig`, `DCAConfig`) to match the new structure.
+- [ ] **Task 1.3:** Update the `load_config` and `save_config` functions to handle the new format.
 
-1.  **Research API Method:**
-    -   **Action:** Confirm that `info.user_fills` is the correct method in the Hyperliquid SDK for fetching historical trade data.
-    -   **Success Criteria:** Understand the arguments required (user's wallet address) and the structure of the returned JSON data.
+### Phase 2: Core Logic Refactoring
+- [ ] **Task 2.1:** Create a new main execution loop (`run_all_strategies`) that iterates over each asset configuration.
+- [ ] **Task 2.2:** Modify `execute_dca_trade` to `execute_trade_for_asset`, which accepts a specific `AssetConfig`.
+- [ ] **Task 2.3:** Update data-fetching methods (`get_historical_prices`, `get_asset_price`) to be generic and accept an asset symbol.
+- [ ] **Task 2.4:** Make the `should_execute_trade` check asset-specific by tracking the last trade time for each asset.
 
-2.  **Implement History Fetching Function:**
-    -   **Action:** Create a new asynchronous function inside the `HyperliquidDCABot` class called `async def get_account_trade_history(self)`.
-    -   **Logic:** This function will call `self.info.user_fills(self.config.wallet_address)` and return the raw trade data.
-    -   **Success Criteria:** The function can be called and successfully returns a list of trade objects from the API.
+### Phase 3: State Management Update
+- [ ] **Task 3.1:** Update the `TradeRecord` dataclass to include an `asset` field.
+- [ ] **Task 3.2:** Modify `load_history` and `save_history` to handle the new `TradeRecord` format.
 
-### Phase 2: Data Processing and UI Integration
+### Phase 4: Dashboard Enhancement
+- [ ] **Task 4.1:** Add a dropdown selector to the Streamlit UI to choose which asset's data to display.
+- [ ] **Task 4.2:** Update all charts, metrics, and tables to filter and display data based on the selected asset.
+- [ ] **Task 4.3:** Create a portfolio-level summary view that aggregates key metrics from all assets.
 
-1.  **Create Data Processing Function:**
-    -   **Action:** Create a helper function that takes the raw trade data from the API and converts it into a clean Pandas DataFrame suitable for display.
-    -   **Logic:** This function will select relevant columns (e.g., timestamp, ticker, side, price, quantity, fee) and format them for readability (e.g., convert timestamp, format numbers).
-    -   **Success Criteria:** A DataFrame with clear, user-friendly column headers and formatted data is produced.
+---
 
-2.  **Update Streamlit Dashboard:**
-    -   **Action:** Modify the `dashboard_page` function in `hyperliquid_dca_bot.py`.
-    -   **Logic:**
-        -   Remove the code that reads from `dca_history.json` for the main history display.
-        -   Call the new `get_account_trade_history` function.
-        -   Pass the result to the new data processing function.
-        -   Display the resulting DataFrame using `st.dataframe()`.
-    -   **Success Criteria:** The dashboard now displays a table with the user's complete spot trade history from Hyperliquid. The old, bot-only history table is gone.
+## Detailed Implementation Steps
 
-## 4. Project Status Board
+### Phase 1: Configuration Rearchitecture
 
--   [x] **Phase 1.1:** Research API Method for User Fills - **COMPLETED**
--   [x] **Phase 1.2:** Implement `get_account_trade_history` Function - **COMPLETED**
--   [x] **Phase 2.1:** Implement Data Processing for API Response - **COMPLETED**
--   [x] **Phase 2.2:** Update Streamlit Dashboard with New History Table - **COMPLETED**
+**Task 1.1: Redesign `dca_config.json`**
+*   **Action:** The current flat JSON structure will be changed to a nested one. There will be a `global_settings` object for the private key and wallet address, and an `assets` list, where each item is an object containing the full DCA strategy for that asset (e.g., symbol, amount, frequency, volatility thresholds).
+*   **Success Criteria:** A new `dca_config.example.json` file is created that clearly shows the new structure with at least two example assets (e.g., BTC and ETH).
 
-## 5. Executor's Feedback or Assistance Requests
+**Task 1.2: Create new Dataclasses**
+*   **Action:** In `hyperliquid_dca_bot.py`, replace the existing `DCAConfig` with three new dataclasses:
+    1.  `AssetConfig`: Holds all settings for a single asset.
+    2.  `GlobalConfig`: Holds the `private_key` and `wallet_address`.
+    3.  `DCAConfig`: The main config object, containing a `global_settings` field (`GlobalConfig`) and an `assets` field (a list of `AssetConfig`).
+*   **Success Criteria:** The new dataclasses are implemented and correctly represent the new JSON structure.
 
-**Feature implementation complete.**
+**Task 1.3: Update Config Functions**
+*   **Action:** Rewrite the `load_config` and `save_config` functions to correctly parse the new nested JSON into the new dataclass structure and serialize it back.
+*   **Success Criteria:** The bot can successfully load and save the new multi-asset configuration without errors.
 
--   A new function, `get_account_trade_history`, was added to the `HyperliquidDCABot` class to fetch all user fills from the Hyperliquid API.
--   The Streamlit dashboard has been updated to call this function and display a comprehensive table of all historical spot trades for the UBTC asset.
--   The old table, which only showed bot-specific trades from a local file, has been replaced.
+---
 
-The dashboard is now a more powerful and accurate tool for viewing trading history.
+## Executor's Feedback or Assistance Requests
 
-## 6. Lessons
+**CRITICAL ISSUE FIXED (2025-07-21):** 
+- **Problem**: The bot was failing with `KeyError: 'BTC/USDC'` when trying to execute trades
+- **Root Cause**: Incorrect symbol usage in Hyperliquid API calls:
+  - `l2_snapshot()` was being called with "BTC" which is not a valid symbol
+  - `all_mids()` was being called with "BTC" instead of "UBTC"
+  - Spot balance lookup was using "BTC" instead of "UBTC"
+- **Solution**: Updated the code to use correct Hyperliquid API symbols:
+  - Use `all_mids()` instead of `l2_snapshot()` for price data
+  - Use "UBTC" for Bitcoin-related API calls
+  - Use "UBTC/USDC" for spot trading orders
+- **Files Modified**: `hyperliquid_dca_bot.py` - updated `get_btc_price()` and `calc_unrealized_pnl()` methods
 
--   The Hyperliquid SDK's `info.user_fills` method is the correct way to get a user's complete trade history.
--   When displaying data from an API, it's important to process it into a user-friendly format (e.g., converting timestamps, formatting numbers, selecting relevant columns) using a library like Pandas.
--   For a more robust user experience, it's better to fetch data from the "source of truth" (the exchange API) rather than relying solely on locally stored logs. 
+**Current Status**: The bot should now be able to execute trades without the KeyError. Ready for testing.
+
+---
+
+## Lessons
+
+**Hyperliquid API Symbol Usage (2025-07-21):**
+- For price data: Use `all_mids()` method with "UBTC" symbol
+- For spot trading: Use "UBTC/USDC" as the trading pair
+- For balance checks: Look for "UBTC" in spot balances
+- Do NOT use "BTC" or "BTC/USDC" as these are not valid symbols in Hyperliquid's API
+- The `l2_snapshot()` method may not be the correct approach for getting current prices in this context 

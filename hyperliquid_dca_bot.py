@@ -70,7 +70,8 @@ logger.addHandler(file_handler)
 BASE_URL = constants.MAINNET_API_URL
 CONFIG_FILE = "dca_config.json"
 HISTORY_FILE = "dca_history.json"
-BITCOIN_SYMBOL = "BTC/USDC" # Corrected for spot market
+BITCOIN_SYMBOL = "BTC"  # For price data from L2 snapshot
+BITCOIN_SPOT_SYMBOL = "UBTC/USDC"  # For spot trading orders
 MIN_USDC_BALANCE = 100.0
 
 @dataclass
@@ -181,13 +182,22 @@ class HyperliquidDCABot:
 
     async def get_btc_price(self) -> float:
         try:
-            l2_snapshot = self.info.l2_snapshot(BITCOIN_SYMBOL)
-            return (float(l2_snapshot["levels"][0][0]["px"]) + float(l2_snapshot["levels"][1][0]["px"])) / 2
+            # Use all_mids() to get current price from Hyperliquid
+            mid_prices = self.info.all_mids()
+            # For Bitcoin, we need to use "UBTC" as the symbol
+            hl_price = float(mid_prices.get("UBTC", 0))
+            if hl_price > 0:
+                logger.info(f"Using Hyperliquid price: ${hl_price:.2f}")
+                return hl_price
+            else:
+                raise ValueError("No valid price found in all_mids")
         except Exception as e:
             logger.warning(f"Could not fetch price from Hyperliquid, falling back to CoinGecko: {e}")
             try:
                 cg_price_data = self.coingecko.get_price(ids='bitcoin', vs_currencies='usd')
-                return cg_price_data['bitcoin']['usd']
+                cg_price = cg_price_data['bitcoin']['usd']
+                logger.info(f"Using CoinGecko price: ${cg_price:.2f}")
+                return cg_price
             except Exception as cg_e:
                 logger.error(f"Failed to fetch price from all sources: {cg_e}")
                 raise ConnectionError("Could not fetch BTC price.")
@@ -234,7 +244,7 @@ class HyperliquidDCABot:
 
             logger.info(f"Attempting to place spot order: size={size_btc:.8f} BTC (${position_size_usd:.2f}) at price ~${current_price:,.2f}")
             order_result = self.exchange.order(
-                BITCOIN_SYMBOL, True, size_btc, current_price, {"limit": {"tif": "Ioc"}}
+                BITCOIN_SPOT_SYMBOL, True, size_btc, current_price, {"limit": {"tif": "Ioc"}}
             )
 
             if order_result["status"] == "ok":
@@ -355,14 +365,15 @@ class HyperliquidDCABot:
         """Bestand, Kostenbasis & unrealisierte PnL via balances + Mid."""
         try:
             spot_state = self.info.spot_user_state(self.config.wallet_address)
-            bal = next((b for b in spot_state["balances"] if b["coin"] == BITCOIN_SYMBOL), None)
+            # For spot balances, we need to look for "UBTC" not "BTC"
+            bal = next((b for b in spot_state["balances"] if b["coin"] == "UBTC"), None)
             if not bal:
                 return 0.0, 0.0, 0.0
             
             pos_sz = float(bal["total"])
             cost_basis = float(bal.get("entryNtl", 0)) / pos_sz if pos_sz else 0
             mid_prices = self.info.all_mids()
-            mid = float(mid_prices.get(BITCOIN_SYMBOL.split('/')[0], 0))
+            mid = float(mid_prices.get("UBTC", 0))
             
             unrealized_pnl = pos_sz * (mid - cost_basis) if mid > 0 else 0
             return unrealized_pnl, pos_sz, cost_basis
