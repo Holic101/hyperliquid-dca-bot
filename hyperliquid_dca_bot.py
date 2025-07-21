@@ -224,7 +224,7 @@ class HyperliquidDCABot:
             spot_state = self.info.spot_user_state(self.config.wallet_address)
             usdc_balance = next((float(b["total"]) for b in spot_state.get("balances", []) if b["coin"] == "USDC"), 0.0)
             if usdc_balance < MIN_USDC_BALANCE:
-                message = f"⚠️ **Trade Skipped:** Balance ({usdc_balance:.2f} USDC) is below minimum threshold (${MIN_USDC_BALANCE:.2f} USDC)."
+                message = f"⚠️ **Trade Skipped:** Balance \\({usdc_balance:.2f} USDC\\) is below minimum threshold \\(${MIN_USDC_BALANCE:.2f} USDC\\)\\."
                 logger.error(message)
                 await send_telegram_message(message)
                 return None
@@ -327,7 +327,7 @@ class HyperliquidDCABot:
                             return trade
                     
                     # If retry also failed, send warning
-                    await send_telegram_message("⚠️ **Trade Warning:**\nOrder submitted but may not have filled (no tx_hash found). Retry also failed.")
+                    await send_telegram_message("⚠️ **Trade Warning:**\nOrder submitted but may not have filled \\(no tx\\_hash found\\)\\. Retry also failed\\.")
                     return None
             else:
                 error_info = order_result.get("response", "No response data.")
