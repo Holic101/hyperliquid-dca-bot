@@ -254,10 +254,48 @@ class HyperliquidDCABot:
             )
 
             if order_result["status"] == "ok":
+                # Debug: Log the full order response to understand the structure
+                logger.info(f"Order response structure: {order_result}")
+                
                 statuses = order_result["response"]["data"]["statuses"]
-                tx_hash = statuses[0].get("txHash") if statuses else None
+                logger.info(f"Statuses: {statuses}")
+                
+                # Check multiple possible fields for transaction hash
+                tx_hash = None
+                if statuses:
+                    first_status = statuses[0]
+                    logger.info(f"First status: {first_status}")
+                    
+                    # Try different possible field names for transaction hash
+                    tx_hash = first_status.get("txHash") or first_status.get("tx_hash") or first_status.get("hash") or first_status.get("transactionHash")
+                    
+                    # Also check if there's a "hash" field at the top level
+                    if not tx_hash and "hash" in order_result["response"]["data"]:
+                        tx_hash = order_result["response"]["data"]["hash"]
+                
+                logger.info(f"Extracted tx_hash: {tx_hash}")
+                
+                # Alternative: Check if order was filled by looking at status or fill information
+                order_filled = False
+                if statuses:
+                    first_status = statuses[0]
+                    # Check if order status indicates it was filled
+                    status_text = first_status.get("status", "").lower()
+                    filled_text = first_status.get("filled", "").lower()
+                    
+                    # Consider order filled if:
+                    # 1. We have a tx_hash, OR
+                    # 2. Status indicates filled, OR  
+                    # 3. There's fill information
+                    order_filled = (tx_hash is not None or 
+                                   "filled" in status_text or 
+                                   "filled" in filled_text or
+                                   first_status.get("filledSz", 0) > 0)
+                    
+                    logger.info(f"Order status: {status_text}, filled: {filled_text}, filledSz: {first_status.get('filledSz', 0)}")
+                    logger.info(f"Order filled determination: {order_filled}")
 
-                if tx_hash:
+                if tx_hash or order_filled:
                     logger.info(f"✅ Trade executed successfully! Tx Hash: {tx_hash}")
 
                     # Send Telegram notification on success
@@ -297,10 +335,43 @@ class HyperliquidDCABot:
                     )
                     
                     if retry_order_result["status"] == "ok":
-                        retry_statuses = retry_order_result["response"]["data"]["statuses"]
-                        retry_tx_hash = retry_statuses[0].get("txHash") if retry_statuses else None
+                        # Debug: Log the full retry order response
+                        logger.info(f"Retry order response structure: {retry_order_result}")
                         
-                        if retry_tx_hash:
+                        retry_statuses = retry_order_result["response"]["data"]["statuses"]
+                        logger.info(f"Retry statuses: {retry_statuses}")
+                        
+                        # Check multiple possible fields for transaction hash
+                        retry_tx_hash = None
+                        if retry_statuses:
+                            first_retry_status = retry_statuses[0]
+                            logger.info(f"First retry status: {first_retry_status}")
+                            
+                            # Try different possible field names for transaction hash
+                            retry_tx_hash = first_retry_status.get("txHash") or first_retry_status.get("tx_hash") or first_retry_status.get("hash") or first_retry_status.get("transactionHash")
+                            
+                            # Also check if there's a "hash" field at the top level
+                            if not retry_tx_hash and "hash" in retry_order_result["response"]["data"]:
+                                retry_tx_hash = retry_order_result["response"]["data"]["hash"]
+                        
+                        logger.info(f"Extracted retry_tx_hash: {retry_tx_hash}")
+                        
+                        # Alternative: Check if retry order was filled
+                        retry_order_filled = False
+                        if retry_statuses:
+                            first_retry_status = retry_statuses[0]
+                            retry_status_text = first_retry_status.get("status", "").lower()
+                            retry_filled_text = first_retry_status.get("filled", "").lower()
+                            
+                            retry_order_filled = (retry_tx_hash is not None or 
+                                                 "filled" in retry_status_text or 
+                                                 "filled" in retry_filled_text or
+                                                 first_retry_status.get("filledSz", 0) > 0)
+                            
+                            logger.info(f"Retry order status: {retry_status_text}, filled: {retry_filled_text}, filledSz: {first_retry_status.get('filledSz', 0)}")
+                            logger.info(f"Retry order filled determination: {retry_order_filled}")
+                        
+                        if retry_tx_hash or retry_order_filled:
                             logger.info(f"✅ Retry successful! Tx Hash: {retry_tx_hash}")
                             
                             # Send Telegram notification on success
