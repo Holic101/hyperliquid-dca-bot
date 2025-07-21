@@ -242,9 +242,15 @@ class HyperliquidDCABot:
                 logger.warning(f"Calculated trade size (${position_size_usd:.2f}) is below the $10 minimum. Skipping trade.")
                 return None
 
-            logger.info(f"Attempting to place spot order: size={size_btc:.8f} BTC (${position_size_usd:.2f}) at price ~${current_price:,.2f}")
+            # Calculate a more aggressive limit price to improve fill rate
+            # Use 0.1% slippage instead of market price to ensure better fills
+            limit_price = current_price * 1.001  # 0.1% above current price for buy orders
+            # Round to nearest dollar (BTC has $1 tick size)
+            limit_price_rounded = round(limit_price)
+            
+            logger.info(f"Attempting to place spot order: size={size_btc:.8f} BTC (${position_size_usd:.2f}) at limit price ${limit_price_rounded:,.2f} (current: ${current_price:,.2f})")
             order_result = self.exchange.order(
-                BITCOIN_SPOT_SYMBOL, True, size_btc, current_price, {"limit": {"tif": "Ioc"}}
+                BITCOIN_SPOT_SYMBOL, True, size_btc, limit_price_rounded, {"limit": {"tif": "Ioc"}}
             )
 
             if order_result["status"] == "ok":
@@ -255,12 +261,14 @@ class HyperliquidDCABot:
                     logger.info(f"✅ Trade executed successfully! Tx Hash: {tx_hash}")
 
                     # Send Telegram notification on success
+                    # Escape special characters for Telegram Markdown
+                    safe_tx_hash = str(tx_hash).replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]').replace('(', '\\(').replace(')', '\\)').replace('~', '\\~').replace('`', '\\`').replace('>', '\\>').replace('#', '\\#').replace('+', '\\+').replace('-', '\\-').replace('=', '\\=').replace('|', '\\|').replace('{', '\\{').replace('}', '\\}').replace('.', '\\.').replace('!', '\\!')
                     success_message = (
                         f"✅ **Trade Executed**\n\n"
                         f"Bought **{size_btc:.6f} BTC** for **${position_size_usd:,.2f}**\n"
                         f"Price: `${current_price:,.2f}`\n"
                         f"Volatility: `{volatility:.2f}%`\n\n"
-                        f"Tx: `{tx_hash}`"
+                        f"Tx: `{safe_tx_hash}`"
                     )
                     await send_telegram_message(success_message)
 
@@ -278,16 +286,61 @@ class HyperliquidDCABot:
                 else:
                     # This case handles when the order is accepted but not filled (e.g., an IoC that doesn't fill)
                     logger.warning("⚠️ Trade submitted but not filled (no tx_hash). Order likely expired or was cancelled immediately.")
-                    await send_telegram_message("⚠️ **Trade Warning:**\nOrder submitted but may not have filled (no tx_hash found).")
+                    
+                    # Try one more time with a slightly higher price (0.2% slippage)
+                    retry_limit_price = current_price * 1.002
+                    retry_limit_price_rounded = round(retry_limit_price)
+                    
+                    logger.info(f"Retrying with higher limit price: ${retry_limit_price_rounded:,.2f}")
+                    retry_order_result = self.exchange.order(
+                        BITCOIN_SPOT_SYMBOL, True, size_btc, retry_limit_price_rounded, {"limit": {"tif": "Ioc"}}
+                    )
+                    
+                    if retry_order_result["status"] == "ok":
+                        retry_statuses = retry_order_result["response"]["data"]["statuses"]
+                        retry_tx_hash = retry_statuses[0].get("txHash") if retry_statuses else None
+                        
+                        if retry_tx_hash:
+                            logger.info(f"✅ Retry successful! Tx Hash: {retry_tx_hash}")
+                            
+                            # Send Telegram notification on success
+                            safe_tx_hash = str(retry_tx_hash).replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]').replace('(', '\\(').replace(')', '\\)').replace('~', '\\~').replace('`', '\\`').replace('>', '\\>').replace('#', '\\#').replace('+', '\\+').replace('-', '\\-').replace('=', '\\=').replace('|', '\\|').replace('{', '\\{').replace('}', '\\}').replace('.', '\\.').replace('!', '\\!')
+                            success_message = (
+                                f"✅ **Trade Executed (Retry)**\n\n"
+                                f"Bought **{size_btc:.6f} BTC** for **${position_size_usd:.2f}**\n"
+                                f"Price: `${retry_limit_price_rounded:,.2f}`\n"
+                                f"Volatility: `{volatility:.2f}%`\n\n"
+                                f"Tx: `{safe_tx_hash}`"
+                            )
+                            await send_telegram_message(success_message)
+
+                            trade = TradeRecord(
+                                timestamp=datetime.now(),
+                                price=retry_limit_price_rounded,
+                                amount_usd=position_size_usd,
+                                amount_btc=size_btc,
+                                volatility=volatility if volatility is not None else 0,
+                                tx_hash=retry_tx_hash
+                            )
+                            self.trade_history.append(trade)
+                            self.save_history()
+                            return trade
+                    
+                    # If retry also failed, send warning
+                    await send_telegram_message("⚠️ **Trade Warning:**\nOrder submitted but may not have filled (no tx_hash found). Retry also failed.")
                     return None
             else:
                 error_info = order_result.get("response", "No response data.")
                 logger.error(f"❌ Trade failed: {error_info}")
-                await send_telegram_message(f"❌ **Trade Failed:**\n`{error_info}`")
+                # Escape special characters for Telegram Markdown
+                safe_error = str(error_info).replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]').replace('(', '\\(').replace(')', '\\)').replace('~', '\\~').replace('`', '\\`').replace('>', '\\>').replace('#', '\\#').replace('+', '\\+').replace('-', '\\-').replace('=', '\\=').replace('|', '\\|').replace('{', '\\{').replace('}', '\\}').replace('.', '\\.').replace('!', '\\!')
+                await send_telegram_message(f"❌ **Trade Failed:**\n`{safe_error}`")
                 return None
         except Exception as e:
             logger.error(f"Error during DCA trade execution: {e}", exc_info=True)
-            await send_telegram_message(f"🚨 **Bot Error:**\nAn unexpected error occurred during trade execution:\n`{e}`")
+            # Escape special characters for Telegram Markdown
+            safe_error = str(e).replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]').replace('(', '\\(').replace(')', '\\)').replace('~', '\\~').replace('`', '\\`').replace('>', '\\>').replace('#', '\\#').replace('+', '\\+').replace('-', '\\-').replace('=', '\\=').replace('|', '\\|').replace('{', '\\{').replace('}', '\\}').replace('.', '\\.').replace('!', '\\!')
+            await send_telegram_message(f"🚨 **Bot Error:**\nAn unexpected error occurred during trade execution:\n`{safe_error}`")
             return None
 
     async def get_spot_asset_index(self, asset_name: str) -> Optional[int]:
