@@ -50,4 +50,5 @@ Thumbs.db
 .streamlit/config.toml
 
 # Documentation
-ROADMAP.md 
+ROADMAP.md
+CLAUDE.md 

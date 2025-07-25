@@ -123,6 +123,10 @@ class HyperliquidDCABot:
         if config.private_key:
             self.account: Optional[LocalAccount] = eth_account.Account.from_key(config.private_key)
             self.exchange = Exchange(self.account, BASE_URL)
+            # Set wallet address from account if not provided in config
+            if not self.config.wallet_address:
+                self.config.wallet_address = self.account.address
+                logger.info(f"Using wallet address from private key: {self.account.address}")
         else:
             self.account = None
             self.exchange = None
@@ -567,12 +571,29 @@ def load_config() -> Optional[DCAConfig]:
     try:
         with open(CONFIG_FILE, 'r') as f:
             config_data = json.load(f)
-        
+    except FileNotFoundError:
+        st.error(f"{CONFIG_FILE} not found. Please create it from the example.")
+        return None
+    except Exception as e:
+        st.error(f"Error loading config: {e}")
+        return None
+    
+    try:
         wallet_address = os.getenv("HYPERLIQUID_WALLET_ADDRESS") or config_data.get("wallet_address")
         private_key = os.getenv("HYPERLIQUID_PRIVATE_KEY") or config_data.get("private_key", "")
 
+        # If no wallet address but we have private key, derive it
+        if not wallet_address and private_key:
+            try:
+                account = eth_account.Account.from_key(private_key)
+                wallet_address = account.address
+                logger.info(f"Derived wallet address from private key: {wallet_address}")
+            except Exception as e:
+                st.error(f"Error deriving wallet address from private key: {e}")
+                return None
+
         if not wallet_address:
-            st.error("Wallet address not found. Please set HYPERLIQUID_WALLET_ADDRESS in your .env file or dca_config.json.")
+            st.error("Wallet address not found. Please set HYPERLIQUID_WALLET_ADDRESS in your .env file, add wallet_address to dca_config.json, or provide a valid HYPERLIQUID_PRIVATE_KEY.")
             return None
 
         return DCAConfig(
@@ -580,11 +601,8 @@ def load_config() -> Optional[DCAConfig]:
             private_key=private_key,
             **{k: v for k, v in config_data.items() if k not in ["wallet_address", "private_key"]}
         )
-    except FileNotFoundError:
-        st.error(f"{CONFIG_FILE} not found. Please create it from the example.")
-        return None
     except Exception as e:
-        st.error(f"Error loading config: {e}")
+        st.error(f"Error creating config: {e}")
         return None
 
 def save_config(config: DCAConfig):
@@ -692,7 +710,120 @@ def dashboard_page():
             st.metric("Total Investiert (im Zeitraum)", f"${total_invested:,.2f}")
 
     with tab_portfolio:
-        st.info("Portfolio analysis will be implemented here.")
+        st.subheader("🪙 Portfolio Overview")
+        
+        # Current Holdings
+        try:
+            spot_state = bot.info.spot_user_state(bot.config.wallet_address)
+            ubtc_balance = next((float(b["total"]) for b in spot_state.get("balances", []) if b["coin"] == "UBTC"), 0.0)
+            usdc_balance = next((float(b["total"]) for b in spot_state.get("balances", []) if b["coin"] == "USDC"), 0.0)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("UBTC Holdings", f"{ubtc_balance:.6f} UBTC")
+            with col2:
+                st.metric("USDC Balance", f"${usdc_balance:,.2f}")
+            
+            # Portfolio Analysis from Spot Fills
+            if spot_fills:
+                # Calculate portfolio metrics
+                buy_fills = [f for f in spot_fills if f["side"] == "B"]
+                if buy_fills:
+                    total_ubtc_bought = sum(float(f["sz"]) for f in buy_fills)
+                    total_usd_spent = sum(float(f["px"]) * float(f["sz"]) for f in buy_fills)
+                    avg_buy_price = total_usd_spent / total_ubtc_bought if total_ubtc_bought > 0 else 0
+                    
+                    # Current value calculation
+                    try:
+                        mid_prices = bot.info.all_mids()
+                        current_ubtc_price = float(mid_prices.get("UBTC", 0))
+                    except:
+                        current_ubtc_price = 0
+                    
+                    current_value = ubtc_balance * current_ubtc_price
+                    unrealized_pnl = current_value - (ubtc_balance * avg_buy_price) if avg_buy_price > 0 else 0
+                    
+                    st.subheader("📊 Portfolio Performance")
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        st.metric("Total Invested", f"${total_usd_spent:,.2f}")
+                    with col2:
+                        st.metric("Avg Buy Price", f"${avg_buy_price:,.2f}")
+                    with col3:
+                        st.metric("Current Price", f"${current_ubtc_price:,.2f}")
+                    with col4:
+                        pnl_color = "normal" if unrealized_pnl >= 0 else "inverse"
+                        st.metric("Unrealized P&L", f"${unrealized_pnl:,.2f}", delta=f"{((current_ubtc_price/avg_buy_price-1)*100) if avg_buy_price > 0 else 0:.2f}%")
+                    
+                    # Portfolio Chart
+                    if len(buy_fills) > 1:
+                        st.subheader("📈 Portfolio Growth")
+                        
+                        # Create cumulative portfolio data
+                        df_fills = pd.DataFrame(buy_fills)
+                        df_fills["time"] = pd.to_datetime(df_fills["time"], unit="ms")
+                        df_fills = df_fills.sort_values("time")
+                        
+                        df_fills["cumulative_ubtc"] = df_fills["sz"].astype(float).cumsum()
+                        df_fills["cumulative_usd"] = (df_fills["px"].astype(float) * df_fills["sz"].astype(float)).cumsum()
+                        df_fills["avg_cost_basis"] = df_fills["cumulative_usd"] / df_fills["cumulative_ubtc"]
+                        
+                        fig = go.Figure()
+                        
+                        # Add cumulative UBTC holdings
+                        fig.add_trace(go.Scatter(
+                            x=df_fills["time"],
+                            y=df_fills["cumulative_ubtc"],
+                            mode='lines+markers',
+                            name='UBTC Holdings',
+                            line=dict(color='orange')
+                        ))
+                        
+                        fig.update_layout(
+                            title='Cumulative UBTC Holdings Over Time',
+                            xaxis_title='Date',
+                            yaxis_title='UBTC Amount',
+                            hovermode='x unified'
+                        )
+                        
+                        st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Cost basis chart
+                        fig2 = go.Figure()
+                        
+                        fig2.add_trace(go.Scatter(
+                            x=df_fills["time"],
+                            y=df_fills["avg_cost_basis"],
+                            mode='lines+markers',
+                            name='Average Cost Basis',
+                            line=dict(color='blue')
+                        ))
+                        
+                        if current_ubtc_price > 0:
+                            fig2.add_hline(
+                                y=current_ubtc_price,
+                                line_dash="dash",
+                                line_color="green",
+                                annotation_text=f"Current Price: ${current_ubtc_price:,.2f}"
+                            )
+                        
+                        fig2.update_layout(
+                            title='Average Cost Basis vs Current Price',
+                            xaxis_title='Date',
+                            yaxis_title='Price (USD)',
+                            hovermode='x unified'
+                        )
+                        
+                        st.plotly_chart(fig2, use_container_width=True)
+                else:
+                    st.info("No buy transactions found in the selected period.")
+            else:
+                st.info("No trading history found. Portfolio analysis will be available after your first trades.")
+                
+        except Exception as e:
+            st.error(f"Error loading portfolio data: {e}")
+            logger.error(f"Portfolio tab error: {e}", exc_info=True)
 
     with tab_trades:
         st.subheader("Spot Trade History (UBTC/USDC)")

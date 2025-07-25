@@ -1,4 +1,5 @@
 {
+  "wallet_address": "0xYourWalletAddressHere",
   "base_amount": 50.0,
   "min_amount": 25.0,
   "max_amount": 100.0,
