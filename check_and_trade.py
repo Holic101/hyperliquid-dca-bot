@@ -4,37 +4,25 @@ Automated trading script for Hyperliquid DCA Bot
 This script is designed to be run via cron job
 """
 import asyncio
-import json
-import os
+import argparse
 import sys
-import logging
-import argparse # Add this import
-from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Add the current directory to Python path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Add src to path for imports
+sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from hyperliquid_dca_bot import HyperliquidDCABot, DCAConfig
+# Local imports
+from src.config.loader import load_config
+from src.trading.bot import HyperliquidDCABot
+from src.utils.logging_config import setup_logging
 from notifications import send_telegram_message
 
 # Load environment variables
 load_dotenv()
 
-# Configure logging
-log_file = Path(__file__).parent / "logs" / f"dca_bot_{datetime.now().strftime('%Y%m%d')}.log"
-log_file.parent.mkdir(exist_ok=True)
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(log_file),
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-logger = logging.getLogger(__name__)
+# Setup logging
+logger = setup_logging("dca_cron")
 
 async def main():
     """Main execution function"""
@@ -48,29 +36,11 @@ async def main():
     logger.info("=== Starting DCA Bot Automated Check ===")
     
     try:
-        # Load configuration
-        config_file = Path(__file__).parent / "dca_config.json"
-        if not config_file.exists():
-            logger.error("Configuration file not found. Please run the web interface to configure the bot.")
+        # Load configuration using the new config loader
+        config = load_config()
+        if not config:
+            logger.error("Failed to load configuration. Please check your setup.")
             return 1
-        
-        with open(config_file, 'r') as f:
-            config_data = json.load(f)
-        
-        # Create config object
-        wallet_address = os.getenv("HYPERLIQUID_WALLET_ADDRESS") or config_data.get("wallet_address", "")
-        config = DCAConfig(
-            wallet_address=wallet_address,
-            private_key=os.getenv("HYPERLIQUID_PRIVATE_KEY"),
-            base_amount=config_data.get("base_amount", 50.0),
-            min_amount=config_data.get("min_amount", 25.0),
-            max_amount=config_data.get("max_amount", 100.0),
-            frequency=config_data.get("frequency", "weekly"),
-            volatility_window=config_data.get("volatility_window", 30),
-            low_vol_threshold=config_data.get("low_vol_threshold", 35.0),
-            high_vol_threshold=config_data.get("high_vol_threshold", 85.0),
-            enabled=config_data.get("enabled", True)
-        )
         
         if not config.enabled:
             logger.info("Bot is disabled in configuration. Exiting.")
@@ -84,42 +54,28 @@ async def main():
         bot = HyperliquidDCABot(config)
         logger.info(f"Bot initialized for wallet: {config.wallet_address[:6]}...{config.wallet_address[-4:]}")
         
-        # Check if trade should execute, unless --force is used
-        if not args.force and not bot.should_execute_trade():
-            logger.info("Not time to execute trade based on frequency setting.")
+        # Execute DCA trade (using force flag if provided)
+        result = await bot.execute_dca_trade(force=args.force)
+        
+        if result:
+            logger.info("✅ Trade executed successfully!")
+            
+            # Send success notification
             if bot.trade_history:
                 last_trade = bot.trade_history[-1]
-                last_trade_time_str = last_trade.timestamp.strftime('%Y-%m-%d %H:%M')
-                logger.info(f"Last trade was on: {last_trade_time_str}")
-                
-                # Send a notification that the trade was skipped
-                message = (
-                    f"ℹ️ **Trade Skipped (Scheduled Check)**\n\n"
-                    f"No trade was executed because not enough time has passed based on your frequency setting (`{config.frequency}`).\n\n"
-                    f"Last trade was on: `{last_trade_time_str}`"
+                success_message = (
+                    f"🚀 **DCA Trade Executed Successfully!**\n\n"
+                    f"💰 **Amount:** ${last_trade.amount_usd:.2f} USDC\n"
+                    f"📈 **Price:** ${last_trade.price:,.2f}\n"
+                    f"₿ **UBTC:** {last_trade.amount_btc:.6f}\n"
+                    f"📊 **Volatility:** {last_trade.volatility:.1f}%\n"
+                    f"🕐 **Time:** {last_trade.timestamp.strftime('%Y-%m-%d %H:%M')}"
                 )
-                await send_telegram_message(message)
-            return 0
-        
-        # Execute DCA trade
-        logger.info("Executing DCA trade...")
-        trade_record = await bot.execute_dca_trade()
-        
-        if trade_record:
-            logger.info(f"✅ Trade executed successfully!")
-            logger.info(f"   Price: ${trade_record.price:,.2f}")
-            logger.info(f"   USD amount: ${trade_record.amount_usd:.2f}")
-            logger.info(f"   BTC amount: {trade_record.amount_btc:.8f}")
-            logger.info(f"   Volatility: {trade_record.volatility:.2f}%")
-            
-            # TODO: Send Telegram notification
-            # if telegram_bot:
-            #     await send_telegram_notification(trade_record)
-            
+                await send_telegram_message(success_message)
             return 0
         else:
-            logger.warning("Trade was not executed. Check logs for details.")
-            return 1
+            logger.info("No trade executed (conditions not met or trade skipped)")
+            return 0
             
     except Exception as e:
         logger.error(f"Error in automated trading script: {e}", exc_info=True)

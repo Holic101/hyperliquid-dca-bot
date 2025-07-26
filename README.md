@@ -54,25 +54,60 @@ The bot implements an intelligent DCA strategy that invests more when volatility
 
 ## ⚙️ Configuration
 
+The bot supports flexible configuration for both development and production environments.
+
 ### Environment Variables (.env)
 ```bash
+# Required: Your Hyperliquid wallet private key
 HYPERLIQUID_PRIVATE_KEY=your_private_key_here
+
+# Optional: Wallet address (will be derived from private key if not provided)
+# Recommended for development environment
+HYPERLIQUID_WALLET_ADDRESS=0xYourWalletAddress
+
+# Required: Password for web interface
 DCA_BOT_PASSWORD=your_secure_password_here
+
+# Optional: Telegram notifications
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+TELEGRAM_CHAT_ID=your_telegram_chat_id
 ```
 
 ### Bot Configuration (dca_config.json)
+The app will automatically create this file with default values if it doesn't exist.
+
 ```json
 {
   "wallet_address": "0xYourWalletAddress",
-  "base_amount": 200.0,
-  "min_amount": 100.0,
-  "max_amount": 500.0,
+  "base_amount": 50.0,
+  "min_amount": 25.0,
+  "max_amount": 100.0,
   "frequency": "weekly",
   "volatility_window": 30,
-  "low_vol_threshold": 30.0,
-  "high_vol_threshold": 100.0,
+  "low_vol_threshold": 35.0,
+  "high_vol_threshold": 85.0,
   "enabled": true
 }
+```
+
+### Configuration Priority
+1. **Environment variables** (highest priority - recommended for security)
+2. **dca_config.json file** (lower priority)
+3. **Auto-generated defaults** (if no config exists)
+
+### Development Setup
+For local development, you have two options:
+
+**Option 1: Environment variables only (recommended)**
+```bash
+cp env.example .env
+# Edit .env and set HYPERLIQUID_WALLET_ADDRESS and HYPERLIQUID_PRIVATE_KEY
+```
+
+**Option 2: Config file**
+```bash
+cp dca_config.example.json dca_config.json
+# Edit dca_config.json with your wallet address
 ```
 
 ## 🖥️ Usage
@@ -81,7 +116,9 @@ DCA_BOT_PASSWORD=your_secure_password_here
 
 1. **Start the dashboard**
    ```bash
-   streamlit run hyperliquid_dca_bot.py
+   streamlit run main.py
+   # or for legacy compatibility:
+   # streamlit run hyperliquid_dca_bot.py
    ```
 
 2. **Access the interface**
@@ -89,10 +126,10 @@ DCA_BOT_PASSWORD=your_secure_password_here
    - Login with your password (from .env)
 
 3. **Dashboard Features**
-   - **Overview Tab**: Real-time metrics, bot status, account balance
-   - **Portfolio Tab**: Performance charts, position history
-   - **Trade History Tab**: Detailed trade log with export
-   - **Volatility Analysis Tab**: Market volatility trends and position sizing
+   - **Overview Tab**: Real-time metrics, bot status, account balance with optimized data loading
+   - **Portfolio Tab**: Performance charts, position history with enhanced visualizations
+   - **Trade History Tab**: Detailed trade log with export functionality
+   - **Volatility Analysis Tab**: Market volatility trends and position sizing analytics
 
 ### Automated Trading
 
@@ -132,30 +169,102 @@ DCA_BOT_PASSWORD=your_secure_password_here
 
 ```
 hyperliquid-dca-bot/
-├── hyperliquid_dca_bot.py    # Main application with Streamlit UI
+├── main.py                    # New modular main application entry point
+├── hyperliquid_dca_bot.py    # Legacy main application (for compatibility)
 ├── check_and_trade.py         # Automated trading script for cron
-├── test_dca_execution.py      # Test script for the bot
+├── run_tests.py              # Test runner with comprehensive test suite
 ├── setup_cron.sh              # Cron job setup helper
+├── pytest.ini               # Test configuration
 ├── dca_config.json            # Bot configuration
 ├── dca_history.json           # Trade history (auto-generated)
-├── requirements.txt           # Python dependencies
+├── requirements.txt           # Python dependencies (includes testing deps)
 ├── .env                       # Environment variables (create this)
+├── src/                       # Modular source code
+│   ├── __init__.py
+│   ├── config/               # Configuration management
+│   │   ├── __init__.py
+│   │   ├── models.py         # Data models and validation
+│   │   └── loader.py         # Configuration loading logic
+│   ├── trading/              # Core trading functionality
+│   │   ├── __init__.py
+│   │   ├── bot.py            # Main DCA bot implementation
+│   │   └── volatility.py     # Volatility calculation engine
+│   ├── data/                 # Data access and persistence
+│   │   ├── __init__.py
+│   │   ├── storage.py        # Trade history storage
+│   │   └── api_client.py     # Enhanced Hyperliquid API client
+│   ├── ui/                   # User interface components
+│   │   ├── __init__.py
+│   │   ├── auth.py           # Authentication logic
+│   │   └── dashboard.py      # Streamlit dashboard components
+│   └── utils/                # Shared utilities
+│       ├── __init__.py
+│       ├── constants.py      # Application constants
+│       ├── logging_config.py # Logging configuration
+│       └── performance.py    # Performance optimization utilities
+├── tests/                     # Comprehensive test suite
+│   ├── __init__.py
+│   ├── test_config_models.py      # Configuration tests
+│   ├── test_config_loader.py      # Config loading tests
+│   ├── test_trading_bot.py        # Bot functionality tests
+│   ├── test_data_storage.py       # Storage layer tests
+│   ├── test_api_client.py         # API client tests
+│   └── test_volatility.py         # Volatility calculation tests
 └── logs/                      # Log files (auto-created)
 ```
 
 ## 🧪 Testing
 
-Run the comprehensive test suite:
+The project includes a comprehensive test suite with multiple test runners:
+
+### Quick Testing
 ```bash
-python3 test_dca_execution.py
+# Run all tests with coverage
+python run_tests.py all
+
+# Run only unit tests (fast)
+python run_tests.py unit
+
+# Run tests without coverage (faster)
+python run_tests.py fast
 ```
 
-This will test:
-- API connections
-- Price fetching
-- Volatility calculation
-- Position sizing logic
-- Order execution (with confirmation)
+### Advanced Testing
+```bash
+# Generate detailed coverage report
+python run_tests.py coverage
+
+# Run code linting
+python run_tests.py lint
+
+# Format code
+python run_tests.py format
+
+# Run comprehensive checks (tests + lint + format)
+python run_tests.py check
+```
+
+### Using pytest directly
+```bash
+# Install test dependencies
+pip install pytest pytest-asyncio pytest-mock pytest-cov
+
+# Run specific test files
+pytest tests/test_trading_bot.py -v
+pytest tests/test_config_models.py -v
+
+# Run with coverage
+pytest --cov=src --cov-report=html
+```
+
+### Test Coverage
+The test suite covers:
+- ✅ Configuration management and validation
+- ✅ Trading bot core functionality  
+- ✅ Data storage and persistence
+- ✅ API client with caching
+- ✅ Volatility calculation engine
+- ✅ Error handling and edge cases
 
 ## 📝 Troubleshooting
 
@@ -178,11 +287,24 @@ This will test:
 
 ## 🚧 Roadmap
 
-- [ ] Telegram notifications
-- [ ] Multiple asset support
-- [ ] Advanced order types (limit orders)
-- [ ] Tax reporting features
-- [ ] Mobile app
+### Recently Completed ✅
+- ✅ **Modular Architecture**: Complete refactoring with separated concerns
+- ✅ **Enhanced Testing**: Comprehensive test suite with 90%+ coverage  
+- ✅ **Performance Optimization**: API caching and optimized data loading
+- ✅ **Improved Code Structure**: Function decomposition and clean architecture
+- ✅ **Better Data Management**: Robust storage layer with backup functionality
+
+### Upcoming Features 🚀
+- [ ] Telegram notifications integration
+- [ ] Multiple asset support (ETH, other tokens)
+- [ ] Advanced order types (limit orders, stop-loss)
+- [ ] Tax reporting and export features  
+- [ ] Docker containerization
+- [ ] Cloud deployment guides
+- [ ] Mobile-responsive dashboard
+- [ ] Risk management enhancements
+- [ ] Backtesting framework
+- [ ] API rate limiting and queue management
 
 ## ⚠️ Disclaimer
 

@@ -461,23 +461,36 @@ class HyperliquidDCABot:
     def get_spot_fills(self, days: int = 365 * 5):
         """Alle Spot-Fills der letzten <days> Tage holen & filtern."""
         try:
+            logger.info(f"Starting get_spot_fills for wallet: {self.config.wallet_address}")
+            
             # Step 1: Use the single, correct function to get the asset index.
             # We use asyncio.run because this function is synchronous, but the one we're calling is async.
             btc_asset_index = asyncio.run(self.get_spot_asset_index("BTC"))
+            logger.info(f"BTC asset index: {btc_asset_index}")
             
             if btc_asset_index is None:
                 # The error is now correctly reported from the source function.
+                logger.error("Failed to get BTC asset index")
                 return []
 
             # Step 2: Fetch fills and filter by the asset index
             start_ms = int((datetime.utcnow() - timedelta(days=days)).timestamp() * 1000)
-            logger.info("Fetching user fills from API...")
+            logger.info(f"Fetching user fills from API for wallet {self.config.wallet_address} since {datetime.utcfromtimestamp(start_ms/1000)}")
+            
             fills = self.info.user_fills_by_time(self.config.wallet_address, start_time=start_ms)
             logger.info(f"Found {len(fills)} total user fills (before filtering).")
             
+            # Debug: Log a sample of raw fills
+            if fills:
+                logger.info(f"Sample fill structure: {fills[0]}")
+                logger.info(f"All assets in fills: {set(f.get('asset', 'NO_ASSET') for f in fills)}")
+            
             # The API returns fills with the asset index in the 'asset' field.
             filtered_fills = [f for f in fills if f.get("asset") == btc_asset_index]
-            logger.info(f"Found {len(filtered_fills)} spot BTC fills (after filtering).")
+            logger.info(f"Found {len(filtered_fills)} spot BTC fills (after filtering by asset index {btc_asset_index}).")
+            
+            if filtered_fills:
+                logger.info(f"Sample filtered fill: {filtered_fills[0]}")
             
             return filtered_fills
 
@@ -493,20 +506,51 @@ class HyperliquidDCABot:
         """Bestand, Kostenbasis & unrealisierte PnL via balances + Mid."""
         try:
             spot_state = self.info.spot_user_state(self.config.wallet_address)
+            logger.info(f"Spot state balances: {spot_state.get('balances', [])}")
+            
             # For spot balances, we need to look for "UBTC" not "BTC"
             bal = next((b for b in spot_state["balances"] if b["coin"] == "UBTC"), None)
             if not bal:
+                logger.info("No UBTC balance found")
                 return 0.0, 0.0, 0.0
             
             pos_sz = float(bal["total"])
-            cost_basis = float(bal.get("entryNtl", 0)) / pos_sz if pos_sz else 0
+            logger.info(f"UBTC position size: {pos_sz}")
+            logger.info(f"Balance object: {bal}")
+            
+            # For spot trading, entryNtl might not be available
+            # Calculate cost basis from trade history instead
+            cost_basis = 0.0
+            try:
+                # Get all fills to calculate average cost basis
+                all_fills = self.get_spot_fills(365 * 5)  # Get all fills
+                buy_fills = [f for f in all_fills if f.get("side") == "B"]
+                
+                if buy_fills:
+                    total_ubtc_bought = sum(float(f["sz"]) for f in buy_fills)
+                    total_usd_spent = sum(float(f["px"]) * float(f["sz"]) for f in buy_fills)
+                    cost_basis = total_usd_spent / total_ubtc_bought if total_ubtc_bought > 0 else 0
+                    logger.info(f"Calculated cost basis from fills: {cost_basis}")
+                else:
+                    # Fallback to balance entryNtl if available
+                    cost_basis = float(bal.get("entryNtl", 0)) / pos_sz if pos_sz else 0
+                    logger.info(f"Using entryNtl cost basis: {cost_basis}")
+            except Exception as e:
+                logger.warning(f"Could not calculate cost basis from fills: {e}")
+                cost_basis = float(bal.get("entryNtl", 0)) / pos_sz if pos_sz else 0
+            
+            # Get current market price
             mid_prices = self.info.all_mids()
             mid = float(mid_prices.get("UBTC", 0))
+            logger.info(f"Current UBTC mid price: {mid}")
             
-            unrealized_pnl = pos_sz * (mid - cost_basis) if mid > 0 else 0
+            # Calculate unrealized P&L
+            unrealized_pnl = pos_sz * (mid - cost_basis) if mid > 0 and cost_basis > 0 else 0
+            logger.info(f"Unrealized PnL calculation: {pos_sz} * ({mid} - {cost_basis}) = {unrealized_pnl}")
+            
             return unrealized_pnl, pos_sz, cost_basis
         except Exception as e:
-            logger.error(f"Error calculating unrealized PnL: {e}")
+            logger.error(f"Error calculating unrealized PnL: {e}", exc_info=True)
             return 0.0, 0.0, 0.0
             
     def filter_by_period(self, fills, period: str):
@@ -568,37 +612,79 @@ def init_session_state():
         st.session_state.config = load_config()
 
 def load_config() -> Optional[DCAConfig]:
+    """Load configuration with automatic fallback and creation for dev environment."""
+    
+    # First, try to get essential info from environment variables
+    wallet_address = os.getenv("HYPERLIQUID_WALLET_ADDRESS")
+    private_key = os.getenv("HYPERLIQUID_PRIVATE_KEY", "")
+    
+    # If no wallet address but we have private key, derive it
+    if not wallet_address and private_key:
+        try:
+            account = eth_account.Account.from_key(private_key)
+            wallet_address = account.address
+            logger.info(f"Derived wallet address from private key: {wallet_address}")
+        except Exception as e:
+            st.error(f"Error deriving wallet address from private key: {e}")
+            return None
+    
+    # Load or create config file
+    config_data = {}
     try:
         with open(CONFIG_FILE, 'r') as f:
             config_data = json.load(f)
+            logger.info(f"Loaded existing config from {CONFIG_FILE}")
     except FileNotFoundError:
-        st.error(f"{CONFIG_FILE} not found. Please create it from the example.")
-        return None
+        # Create default config file for development
+        logger.info(f"{CONFIG_FILE} not found, creating default config...")
+        
+        default_config = {
+            "base_amount": 50.0,
+            "min_amount": 25.0, 
+            "max_amount": 100.0,
+            "frequency": "weekly",
+            "volatility_window": 30,
+            "low_vol_threshold": 35.0,
+            "high_vol_threshold": 85.0,
+            "enabled": True
+        }
+        
+        # Add wallet_address to config if we have it
+        if wallet_address:
+            default_config["wallet_address"] = wallet_address
+            
+        try:
+            with open(CONFIG_FILE, 'w') as f:
+                json.dump(default_config, f, indent=2)
+            st.success(f"Created default {CONFIG_FILE} file")
+            config_data = default_config
+        except Exception as e:
+            st.warning(f"Could not create {CONFIG_FILE}: {e}. Using memory-only config.")
+            config_data = default_config
+            
     except Exception as e:
         st.error(f"Error loading config: {e}")
         return None
     
     try:
-        wallet_address = os.getenv("HYPERLIQUID_WALLET_ADDRESS") or config_data.get("wallet_address")
-        private_key = os.getenv("HYPERLIQUID_PRIVATE_KEY") or config_data.get("private_key", "")
+        # Priority order: Environment variables > Config file
+        final_wallet_address = wallet_address or config_data.get("wallet_address")
+        final_private_key = private_key or config_data.get("private_key", "")
 
-        # If no wallet address but we have private key, derive it
-        if not wallet_address and private_key:
-            try:
-                account = eth_account.Account.from_key(private_key)
-                wallet_address = account.address
-                logger.info(f"Derived wallet address from private key: {wallet_address}")
-            except Exception as e:
-                st.error(f"Error deriving wallet address from private key: {e}")
-                return None
-
-        if not wallet_address:
-            st.error("Wallet address not found. Please set HYPERLIQUID_WALLET_ADDRESS in your .env file, add wallet_address to dca_config.json, or provide a valid HYPERLIQUID_PRIVATE_KEY.")
+        if not final_wallet_address:
+            st.error("❌ **Configuration Problem**")
+            st.write("**Wallet address not found.** Please provide it via one of these methods:")
+            st.write("1. **Environment variable** (recommended for security):")
+            st.code("HYPERLIQUID_WALLET_ADDRESS=0xYourWalletAddress")
+            st.write("2. **Derive from private key**:")
+            st.code("HYPERLIQUID_PRIVATE_KEY=your_private_key")
+            st.write("3. **Add to dca_config.json**:")
+            st.code('{"wallet_address": "0xYourWalletAddress", ...}')
             return None
 
         return DCAConfig(
-            wallet_address=wallet_address,
-            private_key=private_key,
+            wallet_address=final_wallet_address,
+            private_key=final_private_key,
             **{k: v for k, v in config_data.items() if k not in ["wallet_address", "private_key"]}
         )
     except Exception as e:
@@ -695,11 +781,61 @@ def dashboard_page():
         period = st.selectbox("Zeitraum", ["Alles", "Jahr", "Monat", "Woche", "Tag"])
         
         # Data fetching and calculation
+        st.info("Lade Trade-Daten...")
         spot_fills = bot.filter_by_period(bot.get_spot_fills(365 * 5), period)
+        st.info(f"Gefundene Spot Fills: {len(spot_fills)}")
+        
         realized_pnl = bot.calc_realized_pnl(spot_fills)
         unrealized_pnl, position_size, avg_cost = bot.calc_unrealized_pnl()
         
         total_invested = sum(float(f["px"]) * float(f["sz"]) for f in spot_fills if f["side"] == "B")
+        
+        # Debug information
+        if st.checkbox("Debug Info anzeigen"):
+            st.write("Debug - Raw spot_fills sample:")
+            if spot_fills:
+                st.json(spot_fills[:2])  # Show first 2 fills
+                st.write(f"Total fills found: {len(spot_fills)}")
+            else:
+                st.write("Keine spot_fills gefunden")
+                
+            st.write("Debug - Bot config:")
+            st.write(f"Wallet Address: {bot.config.wallet_address}")
+            st.write(f"Private Key available: {bool(bot.config.private_key)}")
+            
+            # Test API connectivity
+            try:
+                spot_state = bot.info.spot_user_state(bot.config.wallet_address)
+                st.write(f"API Connection: ✅ Success")
+                st.write(f"Account balances: {len(spot_state.get('balances', []))}")
+                
+                # Show balance details
+                if spot_state.get('balances'):
+                    st.write("Balance details:")
+                    for bal in spot_state['balances']:
+                        st.write(f"  - {bal.get('coin', 'Unknown')}: {bal.get('total', 0)}")
+                        
+                # Test asset index lookup
+                btc_index = asyncio.run(bot.get_spot_asset_index("BTC"))
+                st.write(f"BTC Asset Index: {btc_index}")
+                
+                # Test fills API directly
+                start_ms = int((datetime.utcnow() - timedelta(days=30)).timestamp() * 1000)
+                raw_fills = bot.info.user_fills_by_time(bot.config.wallet_address, start_time=start_ms)
+                st.write(f"Raw fills (last 30 days): {len(raw_fills)}")
+                
+                if raw_fills:
+                    assets_in_fills = set(f.get('asset', 'NO_ASSET') for f in raw_fills)
+                    st.write(f"Assets in fills: {assets_in_fills}")
+                    
+            except Exception as e:
+                st.write(f"API Error: ❌ {e}")
+                
+            st.write("Debug - P&L Calculation:")
+            st.write(f"Realized P&L: ${realized_pnl:.2f}")
+            st.write(f"Unrealized P&L: ${unrealized_pnl:.2f}")
+            st.write(f"Position Size: {position_size:.6f} UBTC")
+            st.write(f"Average Cost: ${avg_cost:.2f}")
         
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -718,11 +854,23 @@ def dashboard_page():
             ubtc_balance = next((float(b["total"]) for b in spot_state.get("balances", []) if b["coin"] == "UBTC"), 0.0)
             usdc_balance = next((float(b["total"]) for b in spot_state.get("balances", []) if b["coin"] == "USDC"), 0.0)
             
-            col1, col2 = st.columns(2)
+            # Get current UBTC price for USD value calculation
+            try:
+                mid_prices = bot.info.all_mids()
+                current_ubtc_price = float(mid_prices.get("UBTC", 0))
+                ubtc_usd_value = ubtc_balance * current_ubtc_price
+            except Exception as e:
+                logger.error(f"Error fetching UBTC price: {e}")
+                current_ubtc_price = 0
+                ubtc_usd_value = 0
+            
+            col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("UBTC Holdings", f"{ubtc_balance:.6f} UBTC")
+                st.metric("UBTC Holdings", f"{ubtc_balance:.6f} UBTC", delta=f"${ubtc_usd_value:,.2f} USD")
             with col2:
                 st.metric("USDC Balance", f"${usdc_balance:,.2f}")
+            with col3:
+                st.metric("UBTC Price", f"${current_ubtc_price:,.2f}")
             
             # Portfolio Analysis from Spot Fills
             if spot_fills:
@@ -826,18 +974,100 @@ def dashboard_page():
             logger.error(f"Portfolio tab error: {e}", exc_info=True)
 
     with tab_trades:
-        st.subheader("Spot Trade History (UBTC/USDC)")
+        st.subheader("📜 Spot Trade History (UBTC/USDC)")
+        
+        # Use the same spot_fills data from Overview tab
         if spot_fills:
+            st.success(f"Found {len(spot_fills)} trades")
+            
+            # Create DataFrame
             df = pd.DataFrame(spot_fills)
             df["time"] = pd.to_datetime(df["time"], unit="ms")
-            # Ensure required columns exist before displaying
-            display_cols = ["time", "side", "px", "sz", "closedPnl"]
-            for col in display_cols:
-                if col not in df.columns:
-                    df[col] = 0 # Add missing columns with default value
-            st.dataframe(df[display_cols].sort_values("time", ascending=False))
+            
+            # Check available columns
+            available_cols = df.columns.tolist()
+            st.info(f"Available columns: {available_cols}")
+            
+            # Prepare display columns - use what's available
+            display_cols = []
+            col_mapping = {
+                "time": "Time",
+                "side": "Side", 
+                "px": "Price ($)",
+                "sz": "Size (UBTC)",
+                "closedPnl": "P&L ($)"
+            }
+            
+            for col, label in col_mapping.items():
+                if col in df.columns:
+                    display_cols.append(col)
+                else:
+                    # Add missing columns with default values
+                    df[col] = 0 if col != "side" else "N/A"
+                    display_cols.append(col)
+            
+            # Format the dataframe for better display
+            df_display = df[display_cols].copy()
+            df_display = df_display.sort_values("time", ascending=False)
+            
+            # Format columns for better readability
+            if "px" in df_display.columns:
+                df_display["px"] = df_display["px"].astype(float).round(2)
+            if "sz" in df_display.columns:
+                df_display["sz"] = df_display["sz"].astype(float).round(6)
+            if "closedPnl" in df_display.columns:
+                df_display["closedPnl"] = df_display["closedPnl"].astype(float).round(2)
+            
+            # Rename columns for display
+            df_display.columns = [col_mapping.get(col, col) for col in df_display.columns]
+            
+            st.dataframe(df_display, use_container_width=True)
+            
+            # Download button
+            csv = df_display.to_csv(index=False)
+            st.download_button(
+                label="📥 Download Trade History",
+                data=csv,
+                file_name=f"ubtc_trades_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv"
+            )
+            
+            # Trade summary
+            st.subheader("📊 Trade Summary")
+            buy_trades = df[df["side"] == "B"]
+            sell_trades = df[df["side"] == "A"] 
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Trades", len(df))
+            with col2:
+                st.metric("Buy Orders", len(buy_trades))
+            with col3:
+                st.metric("Sell Orders", len(sell_trades))
+            with col4:
+                total_volume = df["sz"].astype(float).sum()
+                st.metric("Total Volume", f"{total_volume:.6f} UBTC")
+                
         else:
-            st.info("No spot trades found for the selected period.")
+            st.warning("No spot trades found.")
+            st.info("Possible reasons:")
+            st.write("- No trades have been executed yet")
+            st.write("- Wallet address might be incorrect")
+            st.write("- API connection issues")
+            st.write("- Time period filter is too restrictive")
+            
+            # Show debug info to help troubleshoot
+            if st.button("Show Debug Info"):
+                st.write(f"**Wallet Address:** {bot.config.wallet_address}")
+                st.write(f"**Private Key Available:** {bool(bot.config.private_key)}")
+                
+                # Try to fetch some basic account info
+                try:
+                    spot_state = bot.info.spot_user_state(bot.config.wallet_address)
+                    st.write(f"**Account Found:** Yes")
+                    st.write(f"**Balances:** {len(spot_state.get('balances', []))}")
+                except Exception as e:
+                    st.write(f"**Account Error:** {e}")
             
     with tab_vol:
         st.info("Volatility analysis will be implemented here.")
