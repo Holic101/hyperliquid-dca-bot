@@ -12,6 +12,10 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
+# Load environment variables FIRST
+from dotenv import load_dotenv
+load_dotenv()
+
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
