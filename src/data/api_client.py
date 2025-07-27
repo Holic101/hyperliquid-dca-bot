@@ -15,6 +15,15 @@ from ..utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+# Asset mapping for Hyperliquid spot pairs (Updated Phase 1.4.1)
+ASSET_MAPPINGS = {
+    "BTC": {"spot_index": 140, "coingecko_id": "bitcoin"},   # @140 - UBTC/USDC
+    "ETH": {"spot_index": 147, "coingecko_id": "ethereum"},  # @147 - UETH/USDC
+    "SOL": {"spot_index": 151, "coingecko_id": "solana"},    # @151 - USOL/USDC
+    "AVAX": {"spot_index": None, "coingecko_id": "avalanche-2"},  # Not available on Hyperliquid spot
+    "LINK": {"spot_index": None, "coingecko_id": "chainlink"},    # Not available on Hyperliquid spot
+}
+
 
 class HyperliquidAPIClient:
     """Enhanced API client with caching and error handling."""
@@ -67,80 +76,145 @@ class HyperliquidAPIClient:
         self._historical_cache.clear()
         logger.info("All caches cleared")
     
-    async def get_current_price(self, use_cache: bool = True) -> Optional[float]:
-        """Get current UBTC price with caching."""
-        cache_key = "ubtc_price"
+    async def discover_asset_spot_indices(self) -> Dict[str, int]:
+        """Discover spot indices for all supported assets."""
+        try:
+            spot_meta = self.info.spot_meta()
+            universe = spot_meta.get("universe", [])
+            tokens = spot_meta.get("tokens", [])
+            
+            discovered_indices = {}
+            
+            for i, pair in enumerate(universe):
+                token_indices = pair.get('tokens', [])
+                if len(token_indices) == 2:
+                    token1_idx, token2_idx = token_indices
+                    
+                    # Check if USDC is one of the tokens (index 0 is USDC)
+                    if token2_idx == 0 and token1_idx < len(tokens):
+                        token_name = tokens[token1_idx].get('name', '')
+                        
+                        # Map known tokens to our asset symbols
+                        asset_mappings = {
+                            'UBTC': 'BTC',
+                            'UETH': 'ETH', 
+                            'USOL': 'SOL',
+                            'UAVAX': 'AVAX',
+                            'ULINK': 'LINK'
+                        }
+                        
+                        if token_name in asset_mappings:
+                            asset_symbol = asset_mappings[token_name]
+                            discovered_indices[asset_symbol] = i
+                            logger.info(f"Discovered {asset_symbol}: @{i} ({token_name}/USDC)")
+            
+            return discovered_indices
+            
+        except Exception as e:
+            logger.error(f"Error discovering asset indices: {e}")
+            return {}
+    
+    async def get_asset_price(self, asset: str, use_cache: bool = True) -> Optional[float]:
+        """Get current price for any supported asset."""
+        cache_key = f"{asset.lower()}_price"
         
         if use_cache and self._is_cache_valid(cache_key):
             price = self._get_cache(cache_key)
-            logger.info(f"Using cached UBTC price: ${price:.2f}")
+            logger.info(f"Using cached {asset} price: ${price:.2f}")
             return price
         
         try:
-            # Try Hyperliquid first
-            mid_prices = self.info.all_mids()
-            hl_price = float(mid_prices.get("UBTC", 0))
-            
-            if hl_price > 0:
-                self._set_cache(cache_key, hl_price)
-                logger.info(f"Fetched Hyperliquid UBTC price: ${hl_price:.2f}")
-                return hl_price
-            else:
-                raise ValueError("No valid UBTC price from Hyperliquid")
+            # Try Hyperliquid first for supported spot assets
+            if asset in ASSET_MAPPINGS and ASSET_MAPPINGS[asset]["spot_index"] is not None:
+                mid_prices = self.info.all_mids()
+                spot_index = ASSET_MAPPINGS[asset]["spot_index"]
+                spot_format = f"@{spot_index}"
+                hl_price = float(mid_prices.get(spot_format, 0))
                 
-        except Exception as e:
-            logger.warning(f"Hyperliquid price fetch failed: {e}, trying CoinGecko")
+                if hl_price > 0:
+                    self._set_cache(cache_key, hl_price)
+                    logger.info(f"Fetched Hyperliquid {asset} price: ${hl_price:.2f} from {spot_format}")
+                    return hl_price
             
-            try:
-                cg_data = self.coingecko.get_price(ids='bitcoin', vs_currencies='usd')
-                cg_price = cg_data['bitcoin']['usd']
+            # Fallback to CoinGecko for all assets
+            if asset in ASSET_MAPPINGS:
+                coingecko_id = ASSET_MAPPINGS[asset]["coingecko_id"]
+                cg_data = self.coingecko.get_price(ids=coingecko_id, vs_currencies='usd')
+                cg_price = cg_data[coingecko_id]['usd']
                 
                 self._set_cache(cache_key, cg_price)
-                logger.info(f"Fetched CoinGecko BTC price: ${cg_price:.2f}")
+                logger.info(f"Fetched CoinGecko {asset} price: ${cg_price:.2f}")
                 return cg_price
-                
-            except Exception as cg_e:
-                logger.error(f"All price sources failed: {cg_e}")
+            else:
+                logger.error(f"Unsupported asset: {asset}")
                 return None
+                
+        except Exception as e:
+            logger.error(f"All price sources failed for {asset}: {e}")
+            return None
+
+    async def get_current_price(self, use_cache: bool = True) -> Optional[float]:
+        """Legacy method for BTC price (backwards compatibility)."""
+        return await self.get_asset_price("BTC", use_cache)
     
-    async def get_account_balance(self, wallet_address: str, coin: str, use_cache: bool = True) -> float:
-        """Get balance for specific coin with caching."""
-        cache_key = f"balance_{wallet_address}_{coin}"
+    async def get_asset_balance(self, wallet_address: str, asset: str, use_cache: bool = True) -> float:
+        """Get balance for any supported asset."""
+        # Map asset to actual token name on Hyperliquid
+        token_mappings = {
+            "BTC": "UBTC",
+            "ETH": "UETH", 
+            "SOL": "USOL",
+            "AVAX": "UAVAX",
+            "LINK": "ULINK",
+            "USDC": "USDC"
+        }
+        
+        token_name = token_mappings.get(asset, asset)
+        cache_key = f"balance_{wallet_address}_{asset}"
         
         if use_cache and self._is_cache_valid(cache_key, self._balance_cache, self._balance_cache_timeout):
             balance = self._get_cache(cache_key, self._balance_cache)
-            logger.info(f"Using cached {coin} balance: {balance}")
+            logger.info(f"Using cached {asset} balance: {balance}")
             return balance
         
         try:
             spot_state = self.info.spot_user_state(wallet_address)
             balance = next(
-                (float(b["total"]) for b in spot_state.get("balances", []) if b["coin"] == coin), 
+                (float(b["total"]) for b in spot_state.get("balances", []) if b["coin"] == token_name), 
                 0.0
             )
             
             self._set_cache(cache_key, balance, self._balance_cache)
-            logger.info(f"{coin} balance: {balance}")
+            logger.info(f"{asset} balance: {balance}")
             return balance
             
         except Exception as e:
-            logger.error(f"Error fetching {coin} balance: {e}")
+            logger.error(f"Error fetching {asset} balance: {e}")
             return 0.0
+
+    async def get_account_balance(self, wallet_address: str, coin: str, use_cache: bool = True) -> float:
+        """Legacy method for getting balance (backwards compatibility)."""
+        return await self.get_asset_balance(wallet_address, coin, use_cache)
     
-    async def get_historical_prices(self, days: int, use_cache: bool = True) -> Optional[pd.DataFrame]:
-        """Get historical price data from CoinGecko with caching."""
-        cache_key = f"historical_prices_{days}"
+    async def get_asset_historical_prices(self, asset: str, days: int, use_cache: bool = True) -> Optional[pd.DataFrame]:
+        """Get historical price data for any asset from CoinGecko with caching."""
+        cache_key = f"historical_prices_{asset.lower()}_{days}"
         
         if use_cache and self._is_cache_valid(cache_key, self._historical_cache, self._historical_cache_timeout):
             prices_df = self._get_cache(cache_key, self._historical_cache)
-            logger.info(f"Using cached historical price data ({days} days)")
+            logger.info(f"Using cached {asset} historical price data ({days} days)")
             return prices_df
         
         try:
-            logger.info(f"Fetching {days} days of historical price data")
+            logger.info(f"Fetching {days} days of {asset} historical price data")
             
+            if asset not in ASSET_MAPPINGS:
+                logger.error(f"Unsupported asset for historical data: {asset}")
+                return None
+            
+            coingecko_id = ASSET_MAPPINGS[asset]["coingecko_id"]
             cg_data = self.coingecko.get_coin_market_chart_by_id(
-                id='bitcoin', vs_currency='usd', days=days
+                id=coingecko_id, vs_currency='usd', days=days
             )
             
             prices_df = pd.DataFrame(cg_data['prices'], columns=['timestamp', 'price'])
@@ -149,12 +223,16 @@ class HyperliquidAPIClient:
             prices_df.set_index('timestamp', inplace=True)
             
             self._set_cache(cache_key, prices_df, self._historical_cache)
-            logger.info(f"Retrieved {len(prices_df)} daily price points")
+            logger.info(f"Retrieved {len(prices_df)} daily {asset} price points")
             return prices_df
             
         except Exception as e:
-            logger.error(f"Error fetching historical prices: {e}")
+            logger.error(f"Error fetching {asset} historical prices: {e}")
             return None
+
+    async def get_historical_prices(self, days: int, use_cache: bool = True) -> Optional[pd.DataFrame]:
+        """Legacy method for BTC historical prices (backwards compatibility)."""
+        return await self.get_asset_historical_prices("BTC", days, use_cache)
     
     async def execute_spot_order(self, amount_usd: float, current_price: float) -> Optional[Dict[str, Any]]:
         """Execute a spot order."""
@@ -188,10 +266,19 @@ class HyperliquidAPIClient:
             logger.error(f"Error executing spot order: {e}")
             return None
     
-    async def get_spot_fills(self, wallet_address: str, days: int = 30) -> list:
-        """Get spot BTC/USDC fills for the wallet (includes @142 which shows as BTC/USDC in UI)."""
+    async def get_asset_spot_fills(self, wallet_address: str, asset: str, days: int = 30) -> list:
+        """Get spot fills for any supported asset."""
         try:
-            logger.info(f"Fetching spot BTC/USDC fills for {wallet_address} (last {days} days)")
+            logger.info(f"Fetching spot {asset}/USDC fills for {wallet_address} (last {days} days)")
+            
+            # Get the spot index for this asset
+            spot_index = ASSET_MAPPINGS.get(asset, {}).get("spot_index")
+            if spot_index is None:
+                logger.error(f"No spot index found for {asset}")
+                return []
+            
+            spot_coin_format = f"@{spot_index}"
+            logger.info(f"Looking for {asset} fills in format: {spot_coin_format}")
             
             # Query fills with extended timeframe (up to 1 year for better coverage)
             start_ms = int((datetime.now() - timedelta(days=min(days, 365))).timestamp() * 1000)
@@ -202,25 +289,18 @@ class HyperliquidAPIClient:
             all_fills = self.info.user_fills_by_time(wallet_address, start_time=start_ms)
             logger.info(f"Retrieved {len(all_fills)} total fills")
             
-            # Log some sample fills for debugging
-            if all_fills:
-                sample_fills = all_fills[:3]
-                for i, fill in enumerate(sample_fills):
-                    logger.info(f"Sample fill {i+1}: {fill}")
-            
-            # Filter for BTC spot trades - @142 shows as BTC/USDC in the Hyperliquid UI
-            btc_spot_fills = []
+            # Filter for this asset's spot trades
+            asset_spot_fills = []
             for f in all_fills:
                 coin = f.get("coin", "")
-                # Look for @142 which corresponds to BTC/USDC trades as shown in the UI
-                if coin == "@142":
-                    btc_spot_fills.append(f)
-                    logger.info(f"Found BTC spot fill: {coin} - {f.get('dir', f.get('side', ''))} - ${f.get('px', 0)} - {f.get('sz', 0)}")
+                if coin == spot_coin_format:
+                    asset_spot_fills.append(f)
+                    logger.info(f"Found {asset} spot fill: {coin} - {f.get('dir', f.get('side', ''))} - ${f.get('px', 0)} - {f.get('sz', 0)}")
             
-            logger.info(f"Found {len(btc_spot_fills)} BTC spot fills in last {days} days")
+            logger.info(f"Found {len(asset_spot_fills)} {asset} spot fills in last {days} days")
             
             # If no direct matches, log all unique coins to help debug
-            if not btc_spot_fills and all_fills:
+            if not asset_spot_fills and all_fills:
                 unique_coins = set()
                 spot_coins = []
                 for f in all_fills:
@@ -232,10 +312,14 @@ class HyperliquidAPIClient:
                 
                 logger.info(f"Unique coins in fills: {unique_coins}")
                 logger.info(f"Spot format coins found: {spot_coins}")
-                logger.info(f"Looking for BTC/USDC as: @142")
+                logger.info(f"Looking for {asset}/USDC as: {spot_coin_format}")
             
-            return btc_spot_fills
+            return asset_spot_fills
             
         except Exception as e:
-            logger.error(f"Error fetching spot BTC fills: {e}")
+            logger.error(f"Error fetching spot {asset} fills: {e}")
             return []
+
+    async def get_spot_fills(self, wallet_address: str, days: int = 30) -> list:
+        """Legacy method for BTC spot fills (backwards compatibility)."""
+        return await self.get_asset_spot_fills(wallet_address, "BTC", days)

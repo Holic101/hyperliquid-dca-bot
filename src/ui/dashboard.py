@@ -648,6 +648,21 @@ def render_dashboard(config: DCAConfig, bot: HyperliquidDCABot):
     """Render the main dashboard."""
     st.title(f"{PAGE_ICON} {PAGE_TITLE}")
     
+    # Multi-Asset upgrade notification
+    st.info("🌟 **New Feature Available!** Multi-Asset DCA is now in Phase 1.3 - Configure multiple cryptocurrencies with independent DCA strategies.")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🌟 Multi-Asset Config", type="primary", use_container_width=True):
+            st.switch_page("Multi-Asset Config")
+    with col2:
+        if st.button("📊 Multi-Asset Dashboard", type="secondary", use_container_width=True):
+            st.switch_page("Multi-Asset Dashboard")
+    
+    st.markdown("---")
+    st.subheader("📊 Single-Asset DCA (BTC Only)")
+    st.caption("Legacy single-asset interface - migrate to Multi-Asset for ETH, SOL, and more!")
+    
     # Render sidebar configuration
     updated_config = render_sidebar(config)
     
