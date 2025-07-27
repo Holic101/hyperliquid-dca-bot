@@ -43,6 +43,74 @@ class SmartMultiAssetDCABot(MultiAssetDCABot):
         
         logger.info(f"Smart Multi-Asset DCA Bot initialized with Phase 2 indicators")
     
+    def get_last_trade_time(self, asset: str) -> Optional[datetime]:
+        """Get the timestamp of the last trade for an asset."""
+        try:
+            asset_trades = [t for t in self.trade_history if t.asset == asset]
+            if asset_trades:
+                # Sort by timestamp and get the most recent
+                latest_trade = max(asset_trades, key=lambda x: x.timestamp)
+                return latest_trade.timestamp
+            return None
+        except Exception as e:
+            logger.error(f"Error getting last trade time for {asset}: {e}")
+            return None
+    
+    def should_execute_based_on_frequency(self, asset: str, last_trade_time: Optional[datetime]) -> Dict[str, Any]:
+        """Check if asset should execute based on frequency timing."""
+        try:
+            asset_config = self.config.assets.get(asset)
+            if not asset_config:
+                return {
+                    "should_execute": False,
+                    "reason": f"No configuration for {asset}"
+                }
+            
+            now = datetime.now()
+            
+            # If no previous trade, allow execution
+            if last_trade_time is None:
+                return {
+                    "should_execute": True,
+                    "reason": "No previous trades found"
+                }
+            
+            # Calculate time since last trade
+            time_since_last = now - last_trade_time
+            
+            # Determine minimum interval based on frequency
+            if asset_config.frequency == "daily":
+                min_interval = timedelta(days=1)
+            elif asset_config.frequency == "weekly":
+                min_interval = timedelta(weeks=1)
+            elif asset_config.frequency == "monthly":
+                min_interval = timedelta(days=30)
+            else:
+                # Default to weekly
+                min_interval = timedelta(weeks=1)
+            
+            # Check if enough time has passed
+            if time_since_last >= min_interval:
+                return {
+                    "should_execute": True,
+                    "reason": f"Frequency check passed: {time_since_last.days} days since last trade"
+                }
+            else:
+                remaining_time = min_interval - time_since_last
+                next_execution = now + remaining_time
+                return {
+                    "should_execute": False,
+                    "reason": f"Too soon: {remaining_time.days} days remaining",
+                    "next_execution": next_execution
+                }
+                
+        except Exception as e:
+            logger.error(f"Error checking frequency for {asset}: {e}")
+            return {
+                "should_execute": False,
+                "reason": f"Frequency check error: {e}"
+            }
+    
     def _initialize_asset_indicators(self, asset_config: AssetDCAConfig):
         """Initialize indicators for a specific asset."""
         asset = asset_config.symbol
