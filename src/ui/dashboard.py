@@ -654,10 +654,10 @@ def render_dashboard(config: DCAConfig, bot: HyperliquidDCABot):
     col1, col2 = st.columns(2)
     with col1:
         if st.button("🌟 Multi-Asset Config", type="primary", use_container_width=True):
-            st.switch_page("Multi-Asset Config")
+            st.switch_page("pages/1_Multi_Asset_Config.py")
     with col2:
         if st.button("📊 Multi-Asset Dashboard", type="secondary", use_container_width=True):
-            st.switch_page("Multi-Asset Dashboard")
+            st.switch_page("pages/2_Multi_Asset_Dashboard.py")
     
     st.markdown("---")
     st.subheader("📊 Single-Asset DCA (BTC Only)")

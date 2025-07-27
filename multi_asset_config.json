@@ -1,0 +1,30 @@
+{
+  "wallet_address": "0x253F3FFE3b8c9DB2723D8f2E8C70ce33DAB7F759",
+  "assets": {
+    "BTC": {
+      "symbol": "BTC",
+      "base_amount": 100.0,
+      "min_amount": 50.0,
+      "max_amount": 200.0,
+      "frequency": "weekly",
+      "volatility_window": 30,
+      "low_vol_threshold": 35.0,
+      "high_vol_threshold": 85.0,
+      "enabled": true,
+      "use_rsi": true,
+      "rsi_period": 14,
+      "rsi_oversold_threshold": 30.0,
+      "rsi_overbought_threshold": 70.0,
+      "rsi_use_wilder": true,
+      "use_ma_dips": true,
+      "ma_periods": "20,50,200",
+      "ma_type": "SMA",
+      "ma_dip_thresholds": "2,5,10",
+      "use_dynamic_frequency": true,
+      "dynamic_low_vol_threshold": 25.0,
+      "dynamic_high_vol_threshold": 50.0
+    }
+  },
+  "enabled": true,
+  "notification_enabled": true
+}

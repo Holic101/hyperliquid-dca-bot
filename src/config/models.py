@@ -83,12 +83,21 @@ class AssetDCAConfig:
     high_vol_threshold: float = 85.0
     enabled: bool = True
     
-    # Asset-specific settings (für Phase 2)
+    # Phase 2: Smart Indicators Settings
     use_rsi: bool = False
+    rsi_period: int = 14
     rsi_oversold_threshold: float = 30.0
+    rsi_overbought_threshold: float = 70.0
+    rsi_use_wilder: bool = True
+    
     use_ma_dips: bool = False
-    ma_dip_threshold: float = 0.05  # 5% unter MA
+    ma_periods: str = "20,50,200"  # Comma-separated MA periods
+    ma_type: str = "SMA"  # "SMA" or "EMA"
+    ma_dip_thresholds: str = "2,5,10"  # Dip percentages for each MA (comma-separated)
+    
     use_dynamic_frequency: bool = False
+    dynamic_low_vol_threshold: float = 25.0
+    dynamic_high_vol_threshold: float = 50.0
     
     def validate(self) -> bool:
         """Validate asset configuration parameters."""
@@ -120,11 +129,19 @@ class AssetDCAConfig:
             'low_vol_threshold': self.low_vol_threshold,
             'high_vol_threshold': self.high_vol_threshold,
             'enabled': self.enabled,
+            # Phase 2: Smart Indicators
             'use_rsi': self.use_rsi,
+            'rsi_period': self.rsi_period,
             'rsi_oversold_threshold': self.rsi_oversold_threshold,
+            'rsi_overbought_threshold': self.rsi_overbought_threshold,
+            'rsi_use_wilder': self.rsi_use_wilder,
             'use_ma_dips': self.use_ma_dips,
-            'ma_dip_threshold': self.ma_dip_threshold,
-            'use_dynamic_frequency': self.use_dynamic_frequency
+            'ma_periods': self.ma_periods,
+            'ma_type': self.ma_type,
+            'ma_dip_thresholds': self.ma_dip_thresholds,
+            'use_dynamic_frequency': self.use_dynamic_frequency,
+            'dynamic_low_vol_threshold': self.dynamic_low_vol_threshold,
+            'dynamic_high_vol_threshold': self.dynamic_high_vol_threshold
         }
 
     @classmethod
@@ -140,11 +157,19 @@ class AssetDCAConfig:
             low_vol_threshold=data.get('low_vol_threshold', 35.0),
             high_vol_threshold=data.get('high_vol_threshold', 85.0),
             enabled=data.get('enabled', True),
+            # Phase 2: Smart Indicators
             use_rsi=data.get('use_rsi', False),
+            rsi_period=data.get('rsi_period', 14),
             rsi_oversold_threshold=data.get('rsi_oversold_threshold', 30.0),
+            rsi_overbought_threshold=data.get('rsi_overbought_threshold', 70.0),
+            rsi_use_wilder=data.get('rsi_use_wilder', True),
             use_ma_dips=data.get('use_ma_dips', False),
-            ma_dip_threshold=data.get('ma_dip_threshold', 0.05),
-            use_dynamic_frequency=data.get('use_dynamic_frequency', False)
+            ma_periods=data.get('ma_periods', "20,50,200"),
+            ma_type=data.get('ma_type', "SMA"),
+            ma_dip_thresholds=data.get('ma_dip_thresholds', "2,5,10"),
+            use_dynamic_frequency=data.get('use_dynamic_frequency', False),
+            dynamic_low_vol_threshold=data.get('dynamic_low_vol_threshold', 25.0),
+            dynamic_high_vol_threshold=data.get('dynamic_high_vol_threshold', 50.0)
         )
 
 

@@ -316,8 +316,11 @@ def render_asset_manual_trade(bot: MultiAssetDCABot, asset: str, config: AssetDC
             
             with st.spinner(f"Executing {asset} trade..."):
                 try:
-                    # Execute real multi-asset trade (Phase 1.4 implementation)
-                    result = asyncio.run(bot.execute_asset_dca_trade(asset, force=True))
+                    # Execute smart multi-asset trade (Phase 2 implementation)
+                    if hasattr(bot, 'execute_smart_asset_dca_trade'):
+                        result = asyncio.run(bot.execute_smart_asset_dca_trade(asset, force=True))
+                    else:
+                        result = asyncio.run(bot.execute_asset_dca_trade(asset, force=True))
                     
                     if result and result.get("status") == "ok":
                         if result.get("simulated"):
@@ -376,8 +379,11 @@ def render_multi_asset_actions(bot: MultiAssetDCABot):
         if st.button("🚀 Execute All DCA", type="primary", use_container_width=True):
             with st.spinner("Executing DCA for all enabled assets..."):
                 try:
-                    # Execute all DCA trades in parallel (Phase 1.4 implementation)
-                    results = asyncio.run(bot.execute_all_dca_trades(force=True, parallel=True))
+                    # Execute all smart DCA trades in parallel (Phase 2 implementation)
+                    if hasattr(bot, 'execute_all_smart_dca_trades'):
+                        results = asyncio.run(bot.execute_all_smart_dca_trades(force=True, parallel=True))
+                    else:
+                        results = asyncio.run(bot.execute_all_dca_trades(force=True, parallel=True))
                     
                     successful_trades = [asset for asset, result in results.items() 
                                        if result and result.get("status") == "ok"]
@@ -441,4 +447,4 @@ def render_multi_asset_actions(bot: MultiAssetDCABot):
     
     with col4:
         if st.button("⚙️ Configure Assets", use_container_width=True):
-            st.switch_page("Multi-Asset Config")
+            st.switch_page("pages/1_Multi_Asset_Config.py")

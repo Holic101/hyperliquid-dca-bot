@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 
 from src.config.models import MultiAssetDCAConfig
 from src.config.loader import load_config
-from src.trading.multi_asset_bot import MultiAssetDCABot
+from src.trading.smart_multi_asset_bot import SmartMultiAssetDCABot
 from src.ui.multi_asset_dashboard import render_multi_asset_tabs, render_multi_asset_actions
 from src.utils.logging_config import get_logger
 
@@ -67,21 +67,21 @@ def main():
             st.error("❌ Could not load multi-asset configuration.")
             st.info("💡 Please configure your multi-asset portfolio first in the Multi-Asset Config page.")
             if st.button("🔧 Go to Multi-Asset Config"):
-                st.switch_page("Multi-Asset Config")
+                st.switch_page("pages/1_Multi_Asset_Config.py")
             return
         
         if not multi_config.assets:
             st.warning("⚠️ No assets configured yet.")
             st.info("💡 Add assets to your portfolio in the Multi-Asset Config page.")
             if st.button("🔧 Configure Assets"):
-                st.switch_page("Multi-Asset Config")
+                st.switch_page("pages/1_Multi_Asset_Config.py")
             return
         
-        # Initialize multi-asset bot
+        # Initialize smart multi-asset bot with Phase 2 indicators
         if 'multi_asset_bot' not in st.session_state:
             try:
-                st.session_state.multi_asset_bot = MultiAssetDCABot(multi_config)
-                logger.info("Multi-asset bot initialized successfully")
+                st.session_state.multi_asset_bot = SmartMultiAssetDCABot(multi_config)
+                logger.info("Smart multi-asset bot initialized successfully")
             except Exception as e:
                 st.error(f"❌ Failed to initialize multi-asset bot: {e}")
                 logger.error(f"Bot initialization error: {e}")
@@ -126,16 +126,16 @@ def main():
             """)
         
         with col2:
-            st.info("**Phase 1.4**: 🚀 Ready for Production")
+            st.success("**Phase 2**: 🧠 Smart Indicators Active!")
             st.markdown("""
-            **Available Assets:**
-            - 🚀 BTC: Real trading via @140
-            - 🚀 ETH: Real trading via @147
-            - 🚀 SOL: Real trading via @151
-            - 📋 AVAX: Simulation only (CoinGecko)
-            - 📋 LINK: Simulation only (CoinGecko)
+            **Smart Features:**
+            - 🧠 RSI-Based Entry (Skip overbought)
+            - 📊 Moving Average Dips (Buy more on dips)
+            - ⚡ Dynamic Frequency (Volatility-based)
+            - 🚀 BTC/ETH/SOL: Real trading + indicators
+            - 📋 AVAX/LINK: Simulation + indicators
             
-            **🎯 Next**: Phase 2 Smart Indicators
+            **🎯 Production Ready**: All systems operational
             """)
         
     except Exception as e:
