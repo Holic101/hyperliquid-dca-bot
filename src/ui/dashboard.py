@@ -645,23 +645,85 @@ def render_volatility_tab(bot: HyperliquidDCABot):
 
 
 def render_dashboard(config: DCAConfig, bot: HyperliquidDCABot):
-    """Render the main dashboard."""
+    """Render the main dashboard with migration to multi-asset."""
     st.title(f"{PAGE_ICON} {PAGE_TITLE}")
     
-    # Multi-Asset upgrade notification
-    st.info("🌟 **New Feature Available!** Multi-Asset DCA is now in Phase 1.3 - Configure multiple cryptocurrencies with independent DCA strategies.")
+    # Check if migration is needed
+    from ..utils.migration import check_migration_needed, perform_migration, get_migration_summary
     
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("🌟 Multi-Asset Config", type="primary", use_container_width=True):
-            st.switch_page("pages/1_Multi_Asset_Config.py")
-    with col2:
-        if st.button("📊 Multi-Asset Dashboard", type="secondary", use_container_width=True):
-            st.switch_page("pages/2_Multi_Asset_Dashboard.py")
+    if check_migration_needed():
+        # Show migration interface
+        st.success("🚀 **Upgrade Available!** Your single-asset DCA can be upgraded to the new Multi-Asset system with smart indicators!")
+        
+        with st.expander("📋 See What Will Be Migrated", expanded=False):
+            migration_summary = get_migration_summary(config)
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("#### 📊 Current Setup")
+                current = migration_summary["current_setup"]
+                st.write(f"• Asset: {current['asset']}")
+                st.write(f"• Amount: {current['base_amount']}")
+                st.write(f"• Frequency: {current['frequency']}")
+                st.write(f"• Volatility: {current['volatility_range']}")
+                st.write(f"• Status: {'✅ Enabled' if current['enabled'] else '❌ Disabled'}")
+            
+            with col2:
+                st.markdown("#### 🌟 After Migration")
+                after = migration_summary["after_migration"]
+                st.write(f"• Asset: {after['asset']}")
+                st.write(f"• Amount: {after['base_amount']}")
+                st.write(f"• Frequency: {after['frequency']}")
+                st.write(f"• Smart Indicators: {after['smart_indicators']}")
+                st.write(f"• Ready for: {after['additional_assets']}")
+            
+            st.markdown("#### 🎯 Migration Benefits")
+            for benefit in migration_summary["benefits"]:
+                st.write(benefit)
+        
+        st.warning("⚠️ **Important**: Your current configuration will be backed up before migration. No data will be lost.")
+        
+        col1, col2, col3 = st.columns([1, 2, 1])
+        
+        with col2:
+            if st.button("🚀 Migrate to Multi-Asset System", type="primary", use_container_width=True):
+                with st.spinner("Migrating your configuration..."):
+                    migrated_config = perform_migration()
+                    
+                    if migrated_config:
+                        st.success("✅ Migration completed successfully!")
+                        st.success("🎉 Your BTC configuration has been upgraded with smart indicators!")
+                        st.info("💡 You can now add ETH, SOL, and other assets to your portfolio.")
+                        
+                        # Add a small delay and redirect
+                        import time
+                        time.sleep(2)
+                        st.switch_page("pages/2_Multi_Asset_Dashboard.py")
+                    else:
+                        st.error("❌ Migration failed. Please check the logs or contact support.")
+        
+        st.markdown("---")
+        st.subheader("📊 Current Single-Asset Dashboard")
+        st.caption("⬆️ Migrate to Multi-Asset above for the best experience!")
     
-    st.markdown("---")
-    st.subheader("📊 Single-Asset DCA (BTC Only)")
-    st.caption("Legacy single-asset interface - migrate to Multi-Asset for ETH, SOL, and more!")
+    else:
+        # Multi-Asset system is available - redirect users there
+        st.success("🌟 **Multi-Asset DCA System Active!** Your configuration has been upgraded.")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🌟 Multi-Asset Config", type="primary", use_container_width=True):
+                st.switch_page("pages/1_Multi_Asset_Config.py")
+        with col2:
+            if st.button("📊 Multi-Asset Dashboard", type="primary", use_container_width=True):
+                st.switch_page("pages/2_Multi_Asset_Dashboard.py")
+        
+        st.markdown("---")
+        st.info("💡 **New Users**: Use the Multi-Asset Config above to set up your DCA strategy with smart indicators!")
+        st.markdown("---")
+        st.subheader("📊 Legacy Single-Asset Interface")
+        st.caption("The interface below is for legacy support only. We recommend using the Multi-Asset system above.")
     
     # Render sidebar configuration
     updated_config = render_sidebar(config)

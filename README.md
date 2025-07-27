@@ -1,24 +1,53 @@
-# Hyperliquid DCA Bot
+# Hyperliquid Multi-Asset DCA Bot
 
-A sophisticated volatility-based Dollar Cost Averaging (DCA) bot for Bitcoin spot trading on Hyperliquid. This bot automatically adjusts position sizes based on market volatility, helping you accumulate Bitcoin more efficiently.
+A sophisticated multi-asset Dollar Cost Averaging (DCA) bot with smart indicators for Hyperliquid spot trading. Features advanced volatility-based position sizing, RSI entry filtering, moving average dip detection, and dynamic frequency adjustment across multiple cryptocurrencies.
 
-## 🚀 Features
+## 🌟 Features
 
-- **Volatility-Based Position Sizing**: Dynamically adjusts investment amounts based on 30-day Bitcoin volatility
+### 🧠 **Smart Indicators (Phase 2)**
+- **RSI-Based Entry**: Skip purchases during overbought conditions, optimize timing
+- **Moving Average Dips**: Automatically increase position sizes during price dips
+- **Dynamic Frequency**: Adjust DCA frequency based on market volatility
+- **Signal Integration**: Combine multiple indicators for intelligent decision making
+
+### 🚀 **Multi-Asset Support**
+- **Bitcoin (BTC)**: Real trading on Hyperliquid spot market
+- **Ethereum (ETH)**: Real trading on Hyperliquid spot market  
+- **Solana (SOL)**: Real trading on Hyperliquid spot market
+- **Avalanche (AVAX)**: Simulation mode (not yet available on Hyperliquid)
+- **Chainlink (LINK)**: Simulation mode (not yet available on Hyperliquid)
+
+### 📊 **Advanced Portfolio Management**
+- **Individual Strategies**: Custom DCA settings per asset
+- **Portfolio Dashboard**: Real-time multi-asset portfolio tracking
+- **Asset Allocation**: Visual portfolio breakdowns and performance metrics
+- **Parallel Execution**: Execute all DCA trades simultaneously for efficiency
+
+### 🎯 **Intelligent Automation**
+- **Volatility-Based Position Sizing**: Dynamically adjusts investment amounts
 - **Automated Trading**: Execute trades automatically via cron jobs
-- **Web Dashboard**: Beautiful Streamlit interface with real-time analytics
-- **Portfolio Tracking**: Monitor performance, P&L, and trade history
-- **Spot Trading**: Uses Hyperliquid's spot market (UBTC/USDC) for actual Bitcoin purchases
-- **Multiple Data Sources**: Averages prices from CoinGecko and Hyperliquid for accuracy
-- **Secure**: Password-protected interface with environment-based configuration
+- **Smart Entry Timing**: RSI and MA signals optimize purchase timing
+- **Risk Management**: Automatic position sizing based on market conditions
 
-## 📈 Strategy
+### 🔧 **User Experience**
+- **Beginner-Friendly Interface**: Comprehensive guides for non-financial users
+- **Portfolio Templates**: Pre-configured strategies for different risk levels
+- **Configuration Validation**: Real-time feedback and optimization tips
+- **Migration Support**: Seamless upgrade from single-asset to multi-asset
 
-The bot implements an intelligent DCA strategy that invests more when volatility is low (better for accumulation) and less when volatility is high (risk management):
+## 📈 Strategy Overview
 
-- **Low Volatility (≤30%)**: Invest maximum amount ($500 default)
-- **High Volatility (≥100%)**: Invest minimum amount ($100 default)
-- **Medium Volatility (30-100%)**: Linear interpolation between min and max
+### **Traditional DCA Enhanced with Smart Indicators**
+
+**Base Strategy**: Volatility-based position sizing
+- **Low Volatility (≤25%)**: Invest maximum amount for steady accumulation
+- **High Volatility (≥50%)**: Invest minimum amount for risk management  
+- **Medium Volatility (25-50%)**: Linear interpolation between min and max
+
+**Smart Enhancements**:
+- **RSI Filtering**: Skip trades when RSI > 70 (overbought), proceed when RSI < 30 (oversold)
+- **MA Dip Detection**: Increase position by 1.2x-2.5x when price drops below moving averages
+- **Dynamic Frequency**: Switch between daily/weekly/monthly based on volatility regimes
 
 ## 🛠️ Installation
 

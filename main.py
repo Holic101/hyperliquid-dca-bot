@@ -43,14 +43,79 @@ def main():
     # Show logout button in sidebar
     render_logout()
     
+    # Check if user should be redirected to multi-asset system
+    from src.utils.migration import check_migration_needed
+    
     # Load configuration
     if not st.session_state.config:
         st.session_state.config = load_bot_config()
     
+    # Handle new users or users who should use multi-asset directly
     if not st.session_state.config:
-        st.error("❌ Unable to load configuration. Please check your setup.")
-        st.stop()
+        # New user - redirect to multi-asset setup
+        st.title("🌟 Welcome to Hyperliquid DCA Bot!")
+        st.success("🎉 **You're starting with the latest Multi-Asset DCA system with smart indicators!**")
+        
+        st.markdown("""
+        ### 🚀 Getting Started
+        
+        **Your DCA bot supports:**
+        - 🧠 **Smart Indicators**: RSI-based entry, Moving Average dips
+        - 🌟 **Multiple Assets**: BTC, ETH, SOL, AVAX, LINK
+        - 📊 **Individual Strategies**: Custom settings per asset
+        - ⚡ **Dynamic Frequency**: Volatility-based timing
+        
+        **Next Steps:**
+        1. Click "Setup Multi-Asset Config" below
+        2. Choose your assets (we recommend starting with BTC + ETH)
+        3. Configure your DCA amounts and frequency
+        4. Enable smart indicators for better entry timing
+        """)
+        
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            if st.button("🚀 Setup Multi-Asset Config", type="primary", use_container_width=True):
+                st.switch_page("pages/1_Multi_Asset_Config.py")
+        
+        st.markdown("---")
+        st.info("💡 **Need help?** The Multi-Asset Config page has comprehensive guides for beginners!")
+        return
     
+    # Existing user - check if migration is needed
+    if not check_migration_needed():
+        # User already has multi-asset setup - redirect them there
+        st.title("🌟 Hyperliquid Multi-Asset DCA")
+        st.success("✅ **Multi-Asset DCA System Active** - Your advanced DCA setup is ready!")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🌟 Multi-Asset Config", type="primary", use_container_width=True):
+                st.switch_page("pages/1_Multi_Asset_Config.py")
+        with col2:
+            if st.button("📊 Multi-Asset Dashboard", type="primary", use_container_width=True):
+                st.switch_page("pages/2_Multi_Asset_Dashboard.py")
+        
+        st.markdown("---")
+        st.info("🎯 **Quick Access**: Use the buttons above to manage your multi-asset portfolio with smart indicators!")
+        
+        # Still show legacy interface for completeness
+        st.markdown("---")
+        st.subheader("📊 Legacy Interface")
+        st.caption("Single-asset interface (legacy support only)")
+        
+        # Initialize bot for legacy interface
+        if not st.session_state.bot:
+            st.session_state.bot = initialize_bot(st.session_state.config)
+        
+        if st.session_state.bot:
+            try:
+                render_dashboard(st.session_state.config, st.session_state.bot)
+            except Exception as e:
+                st.error(f"❌ Dashboard Error: {e}")
+                logger.error(f"Dashboard rendering error: {e}", exc_info=True)
+        return
+    
+    # User needs migration from single-asset to multi-asset
     # Initialize bot
     if not st.session_state.bot:
         st.session_state.bot = initialize_bot(st.session_state.config)
@@ -59,7 +124,7 @@ def main():
         st.error("❌ Unable to initialize bot. Please check your configuration.")
         st.stop()
     
-    # Render main dashboard
+    # Render main dashboard with migration interface
     try:
         render_dashboard(st.session_state.config, st.session_state.bot)
     except Exception as e:
