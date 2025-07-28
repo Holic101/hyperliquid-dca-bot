@@ -17,7 +17,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Add src to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+script_dir = Path(__file__).parent.parent
+sys.path.insert(0, str(script_dir))
+sys.path.insert(0, str(script_dir / "src"))
 
 from src.config.models import MultiAssetDCAConfig
 from src.config.loader import load_config
