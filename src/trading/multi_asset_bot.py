@@ -222,27 +222,13 @@ class MultiAssetDCABot:
     
     async def _simulate_asset_trade(self, asset: str, amount_usd: float, current_price: float, volatility: float, asset_amount: float) -> dict:
         """Simulate an asset trade when real trading is not possible."""
-        logger.info(f"📋 Simulating {asset} trade: {asset_amount:.6f} {asset} for ${amount_usd:.2f}")
+        logger.warning(f"📋 SIMULATION ONLY - {asset} trade: {asset_amount:.6f} {asset} for ${amount_usd:.2f} (NOT SAVED TO HISTORY)")
         
         try:
-            # Create simulated trade record
-            trade_record = TradeRecord(
-                timestamp=datetime.now(),
-                asset=asset,
-                price=current_price,
-                amount_usd=amount_usd,
-                amount_asset=asset_amount,
-                volatility=volatility,
-                tx_hash=f"simulated_{asset}_{int(datetime.now().timestamp())}"
-            )
+            # CRITICAL: DO NOT save simulated trades to permanent storage or history
+            # This was causing fake trades to appear in the dashboard
             
-            # Save trade to storage
-            self.storage.add_trade(trade_record)
-            
-            # Update local history
-            self.trade_history.append(trade_record)
-            
-            logger.info(f"📋 Simulated {asset} trade recorded: {asset_amount:.6f} {asset} for ${amount_usd:.2f}")
+            logger.info(f"📋 Simulated {asset} trade (not recorded): {asset_amount:.6f} {asset} for ${amount_usd:.2f}")
             
             return {
                 "status": "ok",
